@@ -4,14 +4,18 @@ const bcrypt = require('bcrypt');
 const bodyParser = require('body-parser');
 const session = require('express-session');
 const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
+const cloudinary = require('cloudinary').v2;
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// MongoDB Atlas Bulut Bağlantısı (Şifre entegre edildi)
 const MONGO_URL = process.env.MONGO_URL || "mongodb+srv://cinarsucu04_db_user:46vjLI7sNK7djBeE@cluster0.utveet0.mongodb.net/?retryWrites=true&w=majority";
+
+cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET
+});
 
 let db, usersCol, videosCol, commentsCol, followsCol, likesCol;
 let isConnected = false;
@@ -29,27 +33,29 @@ MongoClient.connect(MONGO_URL)
     })
     .catch(err => console.error("Veritabanı bağlantı hatası:", err));
 
-const uploadDir = path.join(__dirname, 'public', 'uploads');
-if (!fs.existsSync(uploadDir)){
-    fs.mkdirSync(uploadDir, { recursive: true });
-}
+const upload = multer({ storage: multer.memoryStorage() });
 
-const storage = multer.diskStorage({
-    destination: (req, file, cb) => cb(null, uploadDir),
-    filename: (req, file, cb) => cb(null, Date.now() + path.extname(file.originalname))
-});
-const upload = multer({ storage: storage });
+const uploadToCloudinary = (fileBuffer, resourceType = 'auto') => {
+    return new Promise((resolve, reject) => {
+        const uploadStream = cloudinary.uploader.upload_stream(
+            { resource_type: resourceType },
+            (error, result) => {
+                if (error) reject(error);
+                else resolve(result);
+            }
+        );
+        uploadStream.end(fileBuffer);
+    });
+};
 
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
-app.use('/uploads', express.static(uploadDir));
 app.use(session({
     secret: 'tiktok-cloud-key',
     resave: false,
     saveUninitialized: true
 }));
 
-// TikTok Alt Navigasyon Çubuğu
 function getNavbar(activeTab, username) {
     return `
     <div class="tiktok-nav">
@@ -86,10 +92,8 @@ const globalStyles = `
     .plus-icon { width: 40px; height: 26px; background: linear-gradient(90deg, #25F4EE 0%, #FE2C55 100%); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: #000; font-size: 22px; font-weight: bold; }
 `;
 
-// Kayıt Ol
 app.post('/register', async (req, res) => {
     if (!isConnected) return res.send("<script>alert('Veritabanı henüz bağlanıyor, lütfen 5 saniye sonra tekrar deneyin!'); window.location='/';</script>");
-    
     const { username, nickname, password } = req.body;
     if (!username || !nickname || !password) return res.send("<script>alert('Tüm alanları doldurun!'); window.location='/';</script>");
 
@@ -113,10 +117,8 @@ app.post('/register', async (req, res) => {
     }
 });
 
-// Giriş Yap
 app.post('/login', async (req, res) => {
     if (!isConnected) return res.send("<script>alert('Veritabanı henüz bağlanıyor, lütfen 5 saniye sonra tekrar deneyin!'); window.location='/';</script>");
-    
     const { username, password } = req.body;
     try {
         const user = await usersCol.findOne({ username: username.toLowerCase().trim() });
@@ -138,7 +140,6 @@ app.get('/logout', (req, res) => {
     req.session.destroy(() => res.redirect('/'));
 });
 
-// Arama / Keşfet Sayfası
 app.get('/search', async (req, res) => {
     if (!req.session.user) return res.redirect('/');
     const query = req.query.q || '';
@@ -183,7 +184,7 @@ app.get('/search', async (req, res) => {
                 resultsHTML += `
                 <div style="padding: 10px 15px; border-bottom:1px solid #1a1a1a; display:flex; justify-content:space-between; align-items:center;">
                     <div><b>@${v.username}</b><p style="margin:4px 0 0 0; font-size:13px; color:#ccc;">${v.caption}</p></div>
-                    <video src="/uploads/${v.filename}" style="width:50px; height:70px; object-fit:cover; border-radius:4px;"></video>
+                    <video src="${v.filename}" style="width:50px; height:70px; object-fit:cover; border-radius:4px;"></video>
                 </div>`;
             });
         } else {
@@ -241,7 +242,6 @@ app.get('/search', async (req, res) => {
     `);
 });
 
-// Video Yükleme Sayfası
 app.get('/upload-page', (req, res) => {
     if (!req.session.user) return res.redirect('/');
     res.send(`
@@ -290,21 +290,31 @@ app.get('/upload-page', (req, res) => {
 
 app.post('/upload', upload.single('video'), async (req, res) => {
     if (!req.session.user || !isConnected) return res.redirect('/');
-    const { caption, song } = req.body;
-    const filename = req.file ? req.file.filename : '';
-    const videoSong = song || 'Orijinal Ses';
+    try {
+        let videoUrl = '';
+        if (req.file) {
+            const cloudRes = await uploadToCloudinary(req.file.buffer, 'video');
+            videoUrl = cloudRes.secure_url;
+        }
 
-    await videosCol.insertOne({
-        user_id: new ObjectId(req.session.user._id),
-        username: req.session.user.username,
-        caption,
-        filename,
-        song: videoSong,
-        likes: 0,
-        favorites: 0,
-        shares: 0
-    });
-    res.redirect('/');
+        const { caption, song } = req.body;
+        const videoSong = song || 'Orijinal Ses';
+
+        await videosCol.insertOne({
+            user_id: new ObjectId(req.session.user._id),
+            username: req.session.user.username,
+            caption,
+            filename: videoUrl,
+            song: videoSong,
+            likes: 0,
+            favorites: 0,
+            shares: 0
+        });
+        res.redirect('/');
+    } catch (err) {
+        console.error("Video yükleme hatası:", err);
+        res.redirect('/');
+    }
 });
 
 app.get('/like/:id', async (req, res) => {
@@ -362,22 +372,37 @@ app.get('/follow/:id', async (req, res) => {
 
 app.post('/update-profile', upload.fields([{ name: 'avatar', maxCount: 1 }, { name: 'banner', maxCount: 1 }]), async (req, res) => {
     if (!req.session.user || !isConnected) return res.redirect('/');
-    const { nickname, bio } = req.body;
-    const userId = new ObjectId(req.session.user._id);
+    try {
+        const { nickname, bio } = req.body;
+        const userId = new ObjectId(req.session.user._id);
 
-    const avatarFile = req.files && req.files['avatar'] ? req.files['avatar'][0].filename : req.session.user.avatar;
-    const bannerFile = req.files && req.files['banner'] ? req.files['banner'][0].filename : req.session.user.banner;
-    const newNickname = nickname || req.session.user.nickname;
+        let avatarFile = req.session.user.avatar;
+        if (req.files && req.files['avatar']) {
+            const avatarRes = await uploadToCloudinary(req.files['avatar'][0].buffer, 'image');
+            avatarFile = avatarRes.secure_url;
+        }
 
-    await usersCol.updateOne({ _id: userId }, {
-        $set: { nickname: newNickname, bio, avatar: avatarFile, banner: bannerFile }
-    });
+        let bannerFile = req.session.user.banner;
+        if (req.files && req.files['banner']) {
+            const bannerRes = await uploadToCloudinary(req.files['banner'][0].buffer, 'image');
+            bannerFile = bannerRes.secure_url;
+        }
 
-    req.session.user.nickname = newNickname;
-    req.session.user.bio = bio;
-    req.session.user.avatar = avatarFile;
-    req.session.user.banner = bannerFile;
-    res.redirect(`/profile/${req.session.user.username}`);
+        const newNickname = nickname || req.session.user.nickname;
+
+        await usersCol.updateOne({ _id: userId }, {
+            $set: { nickname: newNickname, bio, avatar: avatarFile, banner: bannerFile }
+        });
+
+        req.session.user.nickname = newNickname;
+        req.session.user.bio = bio;
+        req.session.user.avatar = avatarFile;
+        req.session.user.banner = bannerFile;
+        res.redirect(`/profile/${req.session.user.username}`);
+    } catch (err) {
+        console.error("Profil güncelleme hatası:", err);
+        res.redirect(`/profile/${req.session.user.username}`);
+    }
 });
 
 app.get('/profile/:username', async (req, res) => {
@@ -400,15 +425,16 @@ app.get('/profile/:username', async (req, res) => {
     videos.forEach(v => {
         videoHTML += `
         <div class="v-thumb">
-            <video src="/uploads/${v.filename}" muted></video>
+            <video src="${v.filename}" muted></video>
             <div class="thumb-stats">❤️ ${v.likes}</div>
         </div>`;
     });
 
     let isMe = req.session.user._id.toString() === targetUser._id.toString();
     let isFollowing = !!followCheck;
-    let bannerBg = targetUser.banner ? `url('/uploads/${targetUser.banner}')` : 'linear-gradient(135deg, #2b2b2b, #111)';
-    let avatarHTML = targetUser.avatar ? `<img src="/uploads/${targetUser.avatar}" style="width:100%; height:100%; border-radius:50%; object-fit:cover;">` : targetUser.nickname.charAt(0).toUpperCase();
+    
+    let bannerBg = targetUser.banner ? `url('${targetUser.banner}')` : 'linear-gradient(135deg, #2b2b2b, #111)';
+    let avatarHTML = targetUser.avatar ? `<img src="${targetUser.avatar}" style="width:100%; height:100%; border-radius:50%; object-fit:cover;">` : targetUser.nickname.charAt(0).toUpperCase();
 
     res.send(`
     <!DOCTYPE html>
@@ -547,7 +573,6 @@ app.get('/inbox', (req, res) => {
     `);
 });
 
-// Ana Sayfa (TikTok Akış & Giriş)
 app.get('/', async (req, res) => {
     if (!req.session.user) {
         return res.send(`
@@ -625,7 +650,7 @@ app.get('/', async (req, res) => {
 
         feedHTML += `
         <div class="video-container">
-            <video id="vid-${v._id}" src="/uploads/${v.filename}" loop playsinline></video>
+            <video id="vid-${v._id}" src="${v.filename}" loop playsinline></video>
             <div class="sound-toggle" onclick="toggleSound('vid-${v._id}', this)">🔊 Sesi Aç</div>
             <div class="video-info">
                 <a href="/profile/${v.username}" style="font-weight: bold; font-size: 15px; text-shadow: 0 1px 2px #000;">@${v.username}</a>
