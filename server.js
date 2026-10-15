@@ -26,19 +26,20 @@ app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
 app.use('/uploads', express.static(uploadDir));
 app.use(session({
-    secret: 'tiktok-mukemmel-anahtar',
+    secret: 'tiktok-pro-anahtar',
     resave: false,
     saveUninitialized: true
 }));
 
-// Veritabanı Tabloları
+// Veritabanı Tabloları (Banner ve Şarkı desteği eklendi)
 db.serialize(() => {
     db.run(`CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         username TEXT UNIQUE,
         nickname TEXT,
         password TEXT,
-        bio TEXT DEFAULT 'Biyografi eklenmedi...'
+        bio TEXT DEFAULT 'Biyografi eklenmedi...',
+        banner TEXT DEFAULT ''
     )`);
     db.run(`CREATE TABLE IF NOT EXISTS videos (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -46,6 +47,7 @@ db.serialize(() => {
         username TEXT,
         caption TEXT,
         filename TEXT,
+        song TEXT DEFAULT 'Orijinal Ses',
         likes INTEGER DEFAULT 0
     )`);
     db.run(`CREATE TABLE IF NOT EXISTS follows (
@@ -58,7 +60,7 @@ db.serialize(() => {
     )`);
 });
 
-// Ortak Alt Navigasyon Çubuğu (TikTok Alt Menü)
+// TikTok Alt Menü ve Paylaş Modal Bileşeni
 function getNavbar(activeTab, username) {
     return `
     <div class="tiktok-nav">
@@ -70,7 +72,7 @@ function getNavbar(activeTab, username) {
             <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
             <span>Arkadaşlar</span>
         </a>
-        <a href="#" onclick="openUploadModal()" class="plus-btn">
+        <a href="/upload-page" class="plus-btn">
             <div class="plus-icon">+</div>
         </a>
         <a href="/inbox" class="${activeTab === 'inbox' ? 'active' : ''}">
@@ -82,22 +84,6 @@ function getNavbar(activeTab, username) {
             <span>Profil</span>
         </a>
     </div>
-    
-    <div id="uploadModal" class="modal">
-        <div class="modal-content">
-            <h3>Yeni Video Yükle</h3>
-            <form action="/upload" method="POST" enctype="multipart/form-data">
-                <input type="text" name="caption" placeholder="Açıklama ve hashtag ekle..." required>
-                <input type="file" name="video" accept="video/*" required>
-                <button type="submit" class="btn-red">Paylaş</button>
-                <button type="button" class="btn-gray" onclick="closeUploadModal()">İptal</button>
-            </form>
-        </div>
-    </div>
-    <script>
-        function openUploadModal() { document.getElementById('uploadModal').style.display = 'flex'; }
-        function closeUploadModal() { document.getElementById('uploadModal').style.display = 'none'; }
-    </script>
     `;
 }
 
@@ -109,11 +95,6 @@ const globalStyles = `
     .tiktok-nav a.active { color: #fff; }
     .plus-btn { position: relative; top: -5px; }
     .plus-icon { width: 40px; height: 26px; background: linear-gradient(90deg, #25F4EE 0%, #FE2C55 100%); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: #000; font-size: 22px; font-weight: bold; }
-    .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 2000; justify-content: center; align-items: center; }
-    .modal-content { background: #1f1f1f; padding: 20px; border-radius: 12px; width: 300px; text-align: center; }
-    .modal-content input { width: 100%; padding: 10px; margin: 10px 0; background: #2f2f2f; border: none; color: #fff; border-radius: 6px; box-sizing: border-box; }
-    .btn-red { width: 100%; padding: 10px; background: #FE2C55; color: #fff; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; margin-top: 5px; }
-    .btn-gray { width: 100%; padding: 10px; background: #333; color: #fff; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; margin-top: 5px; }
 `;
 
 // Kayıt Ol
@@ -154,18 +135,69 @@ app.get('/logout', (req, res) => {
     req.session.destroy(() => res.redirect('/'));
 });
 
-// Video Yükleme
+// Video Paylaşma Ekranı (Fotoğraftaki Gibi Edit Araçları Paneli)
+app.get('/upload-page', (req, res) => {
+    if (!req.session.user) return res.redirect('/');
+    res.send(`
+    <!DOCTYPE html>
+    <html lang="tr">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Video Düzenle ve Paylaş</title>
+        <style>
+            ${globalStyles}
+            .editor-container { position: relative; width: 100vw; height: calc(100vh - 55px); background: #111; display: flex; flex-direction: column; justify-content: space-between; align-items: center; box-sizing: border-box; padding: 20px; }
+            .top-bar { width: 100%; display: flex; justify-content: center; }
+            .sound-badge { background: rgba(0,0,0,0.6); border: 1px solid #444; padding: 8px 16px; border-radius: 20px; font-size: 13px; display: flex; align-items: center; gap: 8px; }
+            .side-tools { position: absolute; right: 15px; top: 70px; display: flex; flex-direction: column; gap: 15px; align-items: center; }
+            .tool-icon { width: 38px; height: 38px; background: rgba(0,0,0,0.5); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 16px; border: 1px solid rgba(255,255,255,0.2); }
+            .form-box { width: 100%; background: rgba(20,20,20,0.9); padding: 15px; border-radius: 12px; display: flex; flex-direction: column; gap: 10px; }
+            .form-box input, .form-box select { width: 100%; padding: 10px; background: #2a2a2a; border: none; color: #fff; border-radius: 6px; box-sizing: border-box; }
+            .publish-btn { background: #FE2C55; color: #fff; padding: 12px; border: none; border-radius: 6px; font-weight: bold; font-size: 15px; cursor: pointer; text-align: center; }
+        </style>
+    </head>
+    <body>
+        <div class="editor-container">
+            <div class="top-bar">
+                <div class="sound-badge">🎵 <input type="text" name="song" form="uploadForm" value="Orijinal Ses - ${req.session.user.nickname}" style="background:transparent; border:none; color:#fff; font-size:12px; outline:none;"></div>
+            </div>
+
+            <div class="side-tools">
+                <div class="tool-icon">⚙️</div>
+                <div class="tool-icon">↗️</div>
+                <div class="tool-icon">✂️</div>
+                <div class="tool-icon">Aa</div>
+                <div class="tool-icon">✨</div>
+            </div>
+
+            <form id="uploadForm" action="/upload" method="POST" enctype="multipart/form-data" class="form-box">
+                <input type="text" name="caption" placeholder="Açıklama ekle, #etiketle..." required>
+                <label style="font-size: 12px; color: #aaa;">Galeriden Video Seç:</label>
+                <input type="file" name="video" accept="video/*" required>
+                <button type="submit" class="publish-btn">İleri / Paylaş</button>
+            </form>
+        </div>
+        ${getNavbar('home', req.session.user.username)}
+    </body>
+    </html>
+    `);
+});
+
+// Video Veritabanına Kaydetme
 app.post('/upload', upload.single('video'), (req, res) => {
     if (!req.session.user) return res.redirect('/');
-    const { caption } = req.body;
+    const { caption, song } = req.body;
     const filename = req.file ? req.file.filename : '';
-    db.run(`INSERT INTO videos (user_id, username, caption, filename) VALUES (?, ?, ?, ?)`, 
-        [req.session.user.id, req.session.user.username, caption, filename], 
+    const videoSong = song || 'Orijinal Ses';
+
+    db.run(`INSERT INTO videos (user_id, username, caption, filename, song) VALUES (?, ?, ?, ?, ?)`, 
+        [req.session.user.id, req.session.user.username, caption, filename, videoSong], 
         () => res.redirect('/')
     );
 });
 
-// Beğeni Değiştirme
+// Beğeni
 app.get('/like/:id', (req, res) => {
     if (!req.session.user) return res.redirect('/');
     const userId = req.session.user.id;
@@ -198,17 +230,20 @@ app.get('/follow/:id', (req, res) => {
     });
 });
 
-// Biyografi Güncelleme
-app.post('/update-bio', (req, res) => {
+// Biyografi ve Banner Güncelleme
+app.post('/update-profile', upload.single('banner'), (req, res) => {
     if (!req.session.user) return res.redirect('/');
     const { bio } = req.body;
-    db.run(`UPDATE users SET bio = ? WHERE id = ?`, [bio, req.session.user.id], () => {
+    const bannerFile = req.file ? req.file.filename : req.session.user.banner;
+
+    db.run(`UPDATE users SET bio = ?, banner = ? WHERE id = ?`, [bio, bannerFile, req.session.user.id], () => {
         req.session.user.bio = bio;
+        req.session.user.banner = bannerFile;
         res.redirect(`/profile/${req.session.user.username}`);
     });
 });
 
-// Profil Sayfası
+// Profil Sayfası (TikTok Banner Destekli)
 app.get('/profile/:username', (req, res) => {
     if (!req.session.user) return res.redirect('/');
     const targetUsername = req.params.username;
@@ -235,6 +270,7 @@ app.get('/profile/:username', (req, res) => {
                             let isMe = req.session.user.id === targetUser.id;
                             let isFollowing = followCheck && followCheck.count > 0;
                             let totalLikes = likesRes.totalLikes || 0;
+                            let bannerBg = targetUser.banner ? `url('/uploads/${targetUser.banner}')` : 'linear-gradient(135deg, #2b2b2b, #111)';
 
                             res.send(`
                             <!DOCTYPE html>
@@ -245,8 +281,9 @@ app.get('/profile/:username', (req, res) => {
                                 <title>${targetUser.nickname} (@${targetUser.username})</title>
                                 <style>
                                     ${globalStyles}
-                                    .profile-header { text-align: center; padding: 25px 15px; background: #000; }
-                                    .avatar { width: 85px; height: 85px; background: #FE2C55; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 36px; margin: 0 auto 10px; font-weight: bold; }
+                                    .banner { width: 100%; height: 140px; background-image: ${bannerBg}; background-size: cover; background-position: center; position: relative; }
+                                    .profile-header { text-align: center; padding: 0 15px 20px 15px; background: #000; position: relative; }
+                                    .avatar { width: 85px; height: 85px; background: #FE2C55; border: 4px solid #000; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 36px; margin: -45px auto 10px auto; font-weight: bold; position: relative; z-index: 2; }
                                     .stats { display: flex; justify-content: center; gap: 20px; margin: 15px 0; font-size: 14px; }
                                     .stats div span { display: block; font-weight: bold; font-size: 16px; }
                                     .bio-box { color: #ccc; font-size: 13px; margin-top: 10px; }
@@ -256,9 +293,13 @@ app.get('/profile/:username', (req, res) => {
                                     .v-thumb { background: #1a1a1a; aspect-ratio: 9/16; position: relative; overflow: hidden; }
                                     .v-thumb video { width: 100%; height: 100%; object-fit: cover; }
                                     .thumb-stats { position: absolute; bottom: 5px; left: 5px; font-size: 11px; font-weight: bold; text-shadow: 0 1px 2px #000; }
+                                    .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 2000; justify-content: center; align-items: center; }
+                                    .modal-content { background: #1f1f1f; padding: 20px; border-radius: 12px; width: 300px; text-align: center; }
+                                    .modal-content input { width: 100%; padding: 10px; margin: 10px 0; background: #2f2f2f; border: none; color: #fff; border-radius: 6px; box-sizing: border-box; }
                                 </style>
                             </head>
                             <body>
+                                <div class="banner"></div>
                                 <div class="profile-header">
                                     <div class="avatar">${targetUser.nickname.charAt(0).toUpperCase()}</div>
                                     <h2 style="margin: 5px 0;">${targetUser.nickname}</h2>
@@ -276,7 +317,7 @@ app.get('/profile/:username', (req, res) => {
 
                                     <div class="action-buttons">
                                         ${isMe ? `
-                                            <button class="btn-profile" style="background: #2f2f2f; color: #fff;" onclick="document.getElementById('bioModal').style.display='flex'">Biyografi Düzenle</button>
+                                            <button class="btn-profile" style="background: #2f2f2f; color: #fff;" onclick="document.getElementById('editModal').style.display='flex'">Profili Düzenle</button>
                                         ` : `
                                             <a href="/follow/${targetUser.id}" class="btn-profile" style="background: ${isFollowing ? '#333' : '#FE2C55'}; color: #fff; text-decoration:none; line-height:30px;">${isFollowing ? 'Takiptesin' : 'Takip Et'}</a>
                                         `}
@@ -288,13 +329,16 @@ app.get('/profile/:username', (req, res) => {
                                 </div>
 
                                 ${isMe ? `
-                                <div id="bioModal" class="modal">
+                                <div id="editModal" class="modal">
                                     <div class="modal-content">
-                                        <h3>Biyografiyi Düzenle</h3>
-                                        <form action="/update-bio" method="POST">
+                                        <h3>Profili Düzenle</h3>
+                                        <form action="/update-profile" method="POST" enctype="multipart/form-data">
+                                            <label style="font-size:11px; color:#aaa; display:block; text-align:left;">Biyografi:</label>
                                             <input type="text" name="bio" value="${targetUser.bio}" required>
-                                            <button type="submit" class="btn-red">Kaydet</button>
-                                            <button type="button" class="btn-gray" onclick="document.getElementById('bioModal').style.display='none'">İptal</button>
+                                            <label style="font-size:11px; color:#aaa; display:block; text-align:left;">Banner (Kapak Fotoğrafı):</label>
+                                            <input type="file" name="banner" accept="image/*">
+                                            <button type="submit" style="background:#FE2C55; color:#fff; padding:10px; border:none; border-radius:6px; width:100%; font-weight:bold; cursor:pointer; margin-top:10px;">Kaydet</button>
+                                            <button type="button" style="background:#333; color:#fff; padding:10px; border:none; border-radius:6px; width:100%; font-weight:bold; cursor:pointer; margin-top:5px;" onclick="document.getElementById('editModal').style.display='none'">İptal</button>
                                         </form>
                                     </div>
                                 </div>` : ''}
@@ -311,7 +355,7 @@ app.get('/profile/:username', (req, res) => {
     });
 });
 
-// Arkadaşlar Ekranı (Görseldeki Gibi Liste)
+// Arkadaşlar
 app.get('/friends', (req, res) => {
     if (!req.session.user) return res.redirect('/');
     db.all(`SELECT * FROM users WHERE id != ?`, [req.session.user.id], (err, users) => {
@@ -349,7 +393,7 @@ app.get('/friends', (req, res) => {
     });
 });
 
-// Gelen Kutusu Ekranı
+// Gelen Kutusu
 app.get('/inbox', (req, res) => {
     if (!req.session.user) return res.redirect('/');
     res.send(`
@@ -364,7 +408,7 @@ app.get('/inbox', (req, res) => {
     <body>
         <h2 style="padding: 15px; margin: 0; border-bottom: 1px solid #222;">Gelen kutusu</h2>
         <div style="padding: 40px; text-align: center; color: #666;">
-            <p>Yeni aktivite veya bildirim bulunmuyor.</p>
+            <p>Yeni bildirim bulunmuyor.</p>
         </div>
         ${getNavbar('inbox', req.session.user.username)}
     </body>
@@ -372,7 +416,7 @@ app.get('/inbox', (req, res) => {
     `);
 });
 
-// TikTok Akış Ana Sayfa
+// Ana Sayfa (TikTok Akış & Giriş)
 app.get('/', (req, res) => {
     if (!req.session.user) {
         return res.send(`
@@ -401,7 +445,7 @@ app.get('/', (req, res) => {
                 <h3 style="font-size: 16px;">Kayıt Ol</h3>
                 <form action="/register" method="POST">
                     <input type="text" name="username" placeholder="Benzersiz Kullanıcı Adı" required>
-                    <input type="text" name="nickname" placeholder="Takma Ad (Görünen İsim)" required>
+                    <input type="text" name="nickname" placeholder="Takma Ad" required>
                     <input type="password" name="password" placeholder="Şifre" required>
                     <button type="submit" style="background: #25F4EE; color: #000;">Kayıt Ol</button>
                 </form>
@@ -419,7 +463,8 @@ app.get('/', (req, res) => {
                 <video src="/uploads/${v.filename}" autoplay loop muted playsinline></video>
                 <div class="video-info">
                     <a href="/profile/${v.username}" style="font-weight: bold; font-size: 15px; text-shadow: 0 1px 2px #000;">@${v.username}</a>
-                    <p style="margin: 5px 0 0 0; font-size: 14px; text-shadow: 0 1px 2px #000;">${v.caption}</p>
+                    <p style="margin: 5px 0; font-size: 14px; text-shadow: 0 1px 2px #000;">${v.caption}</p>
+                    <p style="margin: 0; font-size: 12px; color: #ddd; text-shadow: 0 1px 2px #000;">🎵 ${v.song}</p>
                 </div>
                 <div class="sidebar-actions">
                     <a href="/like/${v.id}" class="action-btn">❤️<span>${v.likes}</span></a>
@@ -448,7 +493,7 @@ app.get('/', (req, res) => {
         </head>
         <body>
             <div class="feed-scroll">
-                ${feedHTML || '<div style="display:flex; justify-content:center; align-items:center; height:100vh; color:#666;">Henüz video paylaşılmamış. Alt menüden "+" butonuna basarak video yükle!</div>'}
+                ${feedHTML || '<div style="display:flex; justify-content:center; align-items:center; height:100vh; color:#666;">Henüz video yok. Alttaki "+" butonuna basarak video paylaş!</div>'}
             </div>
             ${getNavbar('home', req.session.user.username)}
         </body>
