@@ -10,9 +10,8 @@ const fs = require('fs');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// MongoDB Atlas Bulut Bağlantısı 
-// ÖNEMLİ: Aşağıdaki <db_password> yazan yere MongoDB Atlas'ta açtığın kullanıcının ŞİFRESİNİ yazmalısın!
-const MONGO_URL = process.env.MONGO_URL || "mongodb+srv://cinarsucu64_db_user:<db_password>@cluster0.utveete.mongodb.net/?retryWrites=true&w=majority";
+// MongoDB Atlas Bulut Bağlantısı (<db_password> yerine kendi şifreni yazmalısın)
+const MONGO_URL = process.env.MONGO_URL || "mongodb+srv://cinarsucu04_db_user:<db_password>@cluster0.utveet0.mongodb.net/?retryWrites=true&w=majority";
 
 let db, usersCol, videosCol, commentsCol, followsCol, likesCol;
 
@@ -108,7 +107,7 @@ app.post('/register', async (req, res) => {
         });
         res.send("<script>alert('Kayıt başarılı! Giriş yapabilirsiniz.'); window.location='/';</script>");
     } catch (err) {
-        res.send(`<script>alert('Kayıt Hatası: ${err.message.replace(/'/g, "\\'")}'); window.location='/';</script>');`);
+        res.send(`<script>alert('Kayıt Hatası: ${err.message.replace(/'/g, "\\'")}'); window.location='/';</script>`);
     }
 });
 
@@ -129,7 +128,7 @@ app.post('/login', async (req, res) => {
             res.send("<script>alert('Hatalı şifre!'); window.location='/';</script>");
         }
     } catch (err) {
-        res.send(`<script>alert('Giriş Hatası: ${err.message.replace(/'/g, "\\'")}'); window.location='/';</script>');`);
+        res.send(`<script>alert('Giriş Hatası: ${err.message.replace(/'/g, "\\'")}'); window.location='/';</script>`);
     }
 });
 
@@ -582,7 +581,7 @@ app.get('/', async (req, res) => {
                 <div id="loginView" class="hidden">
                     <h2>TikTok'a Giriş Yap</h2>
                     <form action="/login" method="POST" class="form-group">
-                        <input type="text" name="username" password placeholder="Kullanıcı adı" required>
+                        <input type="text" name="username" placeholder="Kullanıcı adı" required>
                         <input type="password" name="password" placeholder="Şifre" required>
                         <button type="submit" class="btn-red">Giriş Yap</button>
                     </form>
