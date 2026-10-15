@@ -26,12 +26,11 @@ app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
 app.use('/uploads', express.static(uploadDir));
 app.use(session({
-    secret: 'tiktok-pro-max-anahtar',
+    secret: 'tiktok-exact-match-key',
     resave: false,
     saveUninitialized: true
 }));
 
-// Veritabanı Tabloları (Avatar, Banner, Yorumlar, Favoriler eklendi)
 db.serialize(() => {
     db.run(`CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -143,7 +142,7 @@ app.get('/logout', (req, res) => {
     req.session.destroy(() => res.redirect('/'));
 });
 
-// Video Paylaşma Ekranı
+// Video Yükleme Sayfası
 app.get('/upload-page', (req, res) => {
     if (!req.session.user) return res.redirect('/');
     res.send(`
@@ -190,7 +189,6 @@ app.get('/upload-page', (req, res) => {
     `);
 });
 
-// Video Kaydetme
 app.post('/upload', upload.single('video'), (req, res) => {
     if (!req.session.user) return res.redirect('/');
     const { caption, song } = req.body;
@@ -203,7 +201,6 @@ app.post('/upload', upload.single('video'), (req, res) => {
     );
 });
 
-// Beğeni
 app.get('/like/:id', (req, res) => {
     if (!req.session.user) return res.redirect('/');
     const userId = req.session.user.id;
@@ -220,19 +217,16 @@ app.get('/like/:id', (req, res) => {
     });
 });
 
-// Favori Ekleme
 app.get('/favorite/:id', (req, res) => {
     if (!req.session.user) return res.redirect('/');
     db.run(`UPDATE videos SET favorites = favorites + 1 WHERE id = ?`, [req.params.id], () => res.redirect('back'));
 });
 
-// Tekrar Paylaşma (Share)
 app.get('/share/:id', (req, res) => {
     if (!req.session.user) return res.redirect('/');
     db.run(`UPDATE videos SET shares = shares + 1 WHERE id = ?`, [req.params.id], () => res.redirect('back'));
 });
 
-// Yorum Ekleme
 app.post('/comment/:id', (req, res) => {
     if (!req.session.user) return res.redirect('/');
     const { comment } = req.body;
@@ -242,7 +236,6 @@ app.post('/comment/:id', (req, res) => {
     );
 });
 
-// Takip Et / Bırak
 app.get('/follow/:id', (req, res) => {
     if (!req.session.user) return res.redirect('/');
     const followerId = req.session.user.id;
@@ -258,14 +251,16 @@ app.get('/follow/:id', (req, res) => {
     });
 });
 
-// Profil ve Avatar/Banner Güncelleme
+// Profil Güncelleme (Takma Ad, Biyografi, Avatar, Banner)
 app.post('/update-profile', upload.fields([{ name: 'avatar', maxCount: 1 }, { name: 'banner', maxCount: 1 }]), (req, res) => {
     if (!req.session.user) return res.redirect('/');
-    const { bio } = req.body;
+    const { nickname, bio } = req.body;
     const avatarFile = req.files && req.files['avatar'] ? req.files['avatar'][0].filename : req.session.user.avatar;
     const bannerFile = req.files && req.files['banner'] ? req.files['banner'][0].filename : req.session.user.banner;
+    const newNickname = nickname || req.session.user.nickname;
 
-    db.run(`UPDATE users SET bio = ?, avatar = ?, banner = ? WHERE id = ?`, [bio, avatarFile, bannerFile, req.session.user.id], () => {
+    db.run(`UPDATE users SET nickname = ?, bio = ?, avatar = ?, banner = ? WHERE id = ?`, [newNickname, bio, avatarFile, bannerFile, req.session.user.id], () => {
+        req.session.user.nickname = newNickname;
         req.session.user.bio = bio;
         req.session.user.avatar = avatarFile;
         req.session.user.banner = bannerFile;
@@ -273,7 +268,6 @@ app.post('/update-profile', upload.fields([{ name: 'avatar', maxCount: 1 }, { na
     });
 });
 
-// Profil Sayfası
 app.get('/profile/:username', (req, res) => {
     if (!req.session.user) return res.redirect('/');
     const targetUsername = req.params.username;
@@ -362,6 +356,8 @@ app.get('/profile/:username', (req, res) => {
                                     <div class="modal-content">
                                         <h3>Profili Düzenle</h3>
                                         <form action="/update-profile" method="POST" enctype="multipart/form-data">
+                                            <label style="font-size:11px; color:#aaa; display:block; text-align:left;">Takma Ad (Görünen İsim):</label>
+                                            <input type="text" name="nickname" value="${targetUser.nickname}" required>
                                             <label style="font-size:11px; color:#aaa; display:block; text-align:left;">Biyografi:</label>
                                             <input type="text" name="bio" value="${targetUser.bio}" required>
                                             <label style="font-size:11px; color:#aaa; display:block; text-align:left;">Profil Fotoğrafı (Avatar):</label>
@@ -386,7 +382,6 @@ app.get('/profile/:username', (req, res) => {
     });
 });
 
-// Arkadaşlar Ekranı
 app.get('/friends', (req, res) => {
     if (!req.session.user) return res.redirect('/');
     db.all(`SELECT * FROM users WHERE id != ?`, [req.session.user.id], (err, users) => {
@@ -424,7 +419,6 @@ app.get('/friends', (req, res) => {
     });
 });
 
-// Gelen Kutusu
 app.get('/inbox', (req, res) => {
     if (!req.session.user) return res.redirect('/');
     res.send(`
@@ -447,7 +441,7 @@ app.get('/inbox', (req, res) => {
     `);
 });
 
-// Ana Sayfa (TikTok Akış, Yorumlar, Ses Butonu, Sağ Menü)
+// Ana Sayfa (Gönderdiğin fotoğraftaki gibi TikTok Giriş/Kayıt Tasarımı)
 app.get('/', (req, res) => {
     if (!req.session.user) {
         return res.send(`
@@ -456,31 +450,64 @@ app.get('/', (req, res) => {
         <head>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>TikTok Giriş</title>
+            <title>TikTok'a Kaydolun</title>
             <style>
-                body { background: #121212; color: #fff; font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
-                .card { background: #1e1e1e; padding: 25px; border-radius: 12px; width: 300px; text-align: center; box-shadow: 0 4px 20px rgba(0,0,0,0.8); }
-                input { width: 100%; padding: 12px; margin: 8px 0; border-radius: 6px; border: none; background: #2b2b2b; color: #fff; box-sizing: border-box; }
-                button { width: 100%; padding: 12px; background: #FE2C55; color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; margin-top: 10px; }
+                body { background: #fff; color: #000; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; margin: 0; padding: 20px; box-sizing: border-box; }
+                .container { width: 100%; max-width: 380px; text-align: center; }
+                h2 { font-size: 26px; font-weight: bold; margin-bottom: 30px; }
+                .form-group { display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px; }
+                input { width: 100%; padding: 14px; background: #f1f1f2; border: none; border-radius: 4px; font-size: 15px; box-sizing: border-box; outline: none; }
+                .btn-red { width: 100%; padding: 14px; background: #FE2C55; color: white; border: none; border-radius: 4px; font-weight: bold; font-size: 16px; cursor: pointer; }
+                .footer-text { position: fixed; bottom: 20px; width: 100%; text-align: center; font-size: 14px; color: #333; }
+                .footer-text span { color: #FE2C55; font-weight: bold; cursor: pointer; }
+                .hidden { display: none; }
             </style>
         </head>
         <body>
-            <div class="card">
-                <h2 style="color: #FE2C55; margin-bottom: 15px;">TikTok'a Giriş Yap</h2>
-                <form action="/login" method="POST">
-                    <input type="text" name="username" placeholder="Kullanıcı adı" required>
-                    <input type="password" name="password" placeholder="Şifre" required>
-                    <button type="submit">Giriş Yap</button>
-                </form>
-                <hr style="border-color: #333; margin: 20px 0;">
-                <h3 style="font-size: 16px;">Kayıt Ol</h3>
-                <form action="/register" method="POST">
-                    <input type="text" name="username" placeholder="Benzersiz Kullanıcı Adı" required>
-                    <input type="text" name="nickname" placeholder="Takma Ad" required>
-                    <input type="password" name="password" placeholder="Şifre" required>
-                    <button type="submit" style="background: #25F4EE; color: #000;">Kayıt Ol</button>
-                </form>
+            <div class="container">
+                <!-- Kayıt Ol Ekranı -->
+                <div id="registerView">
+                    <h2 id="titleText">TikTok'a kaydolun</h2>
+                    <form action="/register" method="POST" class="form-group">
+                        <input type="text" name="username" placeholder="Kullanıcı adı" required>
+                        <input type="text" name="nickname" placeholder="Takma ad (Görünen isim)" required>
+                        <input type="password" name="password" placeholder="Şifre" required>
+                        <button type="submit" class="btn-red">Kayıt Ol</button>
+                    </form>
+                </div>
+
+                <!-- Giriş Yap Ekranı -->
+                <div id="loginView" class="hidden">
+                    <h2>TikTok'a Giriş Yap</h2>
+                    <form action="/login" method="POST" class="form-group">
+                        <input type="text" name="username" placeholder="Kullanıcı adı" required>
+                        <input type="password" name="password" placeholder="Şifre" required>
+                        <button type="submit" class="btn-red">Giriş Yap</button>
+                    </form>
+                </div>
             </div>
+
+            <div class="footer-text" id="footerText">
+                Zaten bir hesabınız var mı? <span onclick="toggleView()">Giriş yap</span>
+            </div>
+
+            <script>
+                function toggleView() {
+                    const reg = document.getElementById('registerView');
+                    const log = document.getElementById('loginView');
+                    const footer = document.getElementById('footerText');
+                    
+                    if (reg.classList.contains('hidden')) {
+                        reg.classList.remove('hidden');
+                        log.classList.add('hidden');
+                        footer.innerHTML = 'Zaten bir hesabınız var mı? <span onclick="toggleView()">Giriş yap</span>';
+                    } else {
+                        reg.classList.add('hidden');
+                        log.classList.remove('hidden');
+                        footer.innerHTML = 'Hesabınız yok mu? <span onclick="toggleView()">Kayıt ol</span>';
+                    }
+                }
+            </script>
         </body>
         </html>
         `);
@@ -488,7 +515,6 @@ app.get('/', (req, res) => {
 
     db.all(`SELECT * FROM videos ORDER BY id DESC`, [], (err, videos) => {
         let feedHTML = '';
-        
         let processedCount = 0;
         if (videos.length === 0) renderFeed('');
 
