@@ -10,10 +10,11 @@ const fs = require('fs');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// MongoDB Atlas Bulut Bağlantısı (<db_password> yerine kendi şifreni yazmalısın)
-const MONGO_URL = process.env.MONGO_URL || "mongodb+srv://cinarsucu04_db_user:<db_password>@cluster0.utveet0.mongodb.net/?retryWrites=true&w=majority";
+// MongoDB Atlas Bulut Bağlantısı (Şifre entegre edildi)
+const MONGO_URL = process.env.MONGO_URL || "mongodb+srv://cinarsucu04_db_user:46vjLI7sNK7djBeE@cluster0.utveet0.mongodb.net/?retryWrites=true&w=majority";
 
 let db, usersCol, videosCol, commentsCol, followsCol, likesCol;
+let isConnected = false;
 
 MongoClient.connect(MONGO_URL)
     .then(client => {
@@ -23,6 +24,7 @@ MongoClient.connect(MONGO_URL)
         commentsCol = db.collection('comments');
         followsCol = db.collection('follows');
         likesCol = db.collection('likes');
+        isConnected = true;
         console.log("MongoDB bulut veritabanına başarıyla bağlandı!");
     })
     .catch(err => console.error("Veritabanı bağlantı hatası:", err));
@@ -86,12 +88,12 @@ const globalStyles = `
 
 // Kayıt Ol
 app.post('/register', async (req, res) => {
+    if (!isConnected) return res.send("<script>alert('Veritabanı henüz bağlanıyor, lütfen 5 saniye sonra tekrar deneyin!'); window.location='/';</script>");
+    
     const { username, nickname, password } = req.body;
     if (!username || !nickname || !password) return res.send("<script>alert('Tüm alanları doldurun!'); window.location='/';</script>");
 
     try {
-        if (!usersCol) return res.send("<script>alert('Veritabanı bağlantısı henüz kurulmadı!'); window.location='/';</script>");
-        
         const cleanUsername = username.toLowerCase().trim();
         const existing = await usersCol.findOne({ username: cleanUsername });
         if (existing) return res.send("<script>alert('Bu kullanıcı adı zaten alınmış!'); window.location='/';</script>");
@@ -113,10 +115,10 @@ app.post('/register', async (req, res) => {
 
 // Giriş Yap
 app.post('/login', async (req, res) => {
+    if (!isConnected) return res.send("<script>alert('Veritabanı henüz bağlanıyor, lütfen 5 saniye sonra tekrar deneyin!'); window.location='/';</script>");
+    
     const { username, password } = req.body;
     try {
-        if (!usersCol) return res.send("<script>alert('Veritabanı bağlantısı henüz kurulmadı!'); window.location='/';</script>");
-        
         const user = await usersCol.findOne({ username: username.toLowerCase().trim() });
         if (!user) return res.send("<script>alert('Kullanıcı bulunamadı!'); window.location='/';</script>");
         
@@ -144,7 +146,7 @@ app.get('/search', async (req, res) => {
     let searchResultsVideos = [];
     let searchResultsUsers = [];
 
-    if (query && usersCol && videosCol) {
+    if (query && isConnected) {
         searchResultsVideos = await videosCol.find({ 
             $or: [
                 { caption: { $regex: query,$options: 'i' } },
@@ -287,7 +289,7 @@ app.get('/upload-page', (req, res) => {
 });
 
 app.post('/upload', upload.single('video'), async (req, res) => {
-    if (!req.session.user) return res.redirect('/');
+    if (!req.session.user || !isConnected) return res.redirect('/');
     const { caption, song } = req.body;
     const filename = req.file ? req.file.filename : '';
     const videoSong = song || 'Orijinal Ses';
@@ -306,7 +308,7 @@ app.post('/upload', upload.single('video'), async (req, res) => {
 });
 
 app.get('/like/:id', async (req, res) => {
-    if (!req.session.user) return res.redirect('/');
+    if (!req.session.user || !isConnected) return res.redirect('/');
     const videoId = new ObjectId(req.params.id);
     const userId = req.session.user._id;
 
@@ -322,19 +324,19 @@ app.get('/like/:id', async (req, res) => {
 });
 
 app.get('/favorite/:id', async (req, res) => {
-    if (!req.session.user) return res.redirect('/');
+    if (!req.session.user || !isConnected) return res.redirect('/');
     await videosCol.updateOne({ _id: new ObjectId(req.params.id) }, { $inc: { favorites: 1 } });
     res.redirect('back');
 });
 
 app.get('/share/:id', async (req, res) => {
-    if (!req.session.user) return res.redirect('/');
+    if (!req.session.user || !isConnected) return res.redirect('/');
     await videosCol.updateOne({ _id: new ObjectId(req.params.id) }, { $inc: { shares: 1 } });
     res.redirect('back');
 });
 
 app.post('/comment/:id', async (req, res) => {
-    if (!req.session.user) return res.redirect('/');
+    if (!req.session.user || !isConnected) return res.redirect('/');
     const { comment } = req.body;
     await commentsCol.insertOne({
         video_id: new ObjectId(req.params.id),
@@ -345,7 +347,7 @@ app.post('/comment/:id', async (req, res) => {
 });
 
 app.get('/follow/:id', async (req, res) => {
-    if (!req.session.user) return res.redirect('/');
+    if (!req.session.user || !isConnected) return res.redirect('/');
     const followerId = req.session.user._id;
     const followingId = new ObjectId(req.params.id);
 
@@ -359,7 +361,7 @@ app.get('/follow/:id', async (req, res) => {
 });
 
 app.post('/update-profile', upload.fields([{ name: 'avatar', maxCount: 1 }, { name: 'banner', maxCount: 1 }]), async (req, res) => {
-    if (!req.session.user) return res.redirect('/');
+    if (!req.session.user || !isConnected) return res.redirect('/');
     const { nickname, bio } = req.body;
     const userId = new ObjectId(req.session.user._id);
 
@@ -379,7 +381,7 @@ app.post('/update-profile', upload.fields([{ name: 'avatar', maxCount: 1 }, { na
 });
 
 app.get('/profile/:username', async (req, res) => {
-    if (!req.session.user) return res.redirect('/');
+    if (!req.session.user || !isConnected) return res.redirect('/');
     const targetUser = await usersCol.findOne({ username: req.params.username });
     if (!targetUser) return res.send("Kullanıcı bulunamadı.");
 
@@ -488,7 +490,7 @@ app.get('/profile/:username', async (req, res) => {
 });
 
 app.get('/friends', async (req, res) => {
-    if (!req.session.user) return res.redirect('/');
+    if (!req.session.user || !isConnected) return res.redirect('/');
     const users = await usersCol.find({ _id: { $ne: new ObjectId(req.session.user._id) } }).toArray();
     let listHTML = '';
     users.forEach(u => {
@@ -611,7 +613,7 @@ app.get('/', async (req, res) => {
         `);
     }
 
-    const videos = videosCol ? await videosCol.find({}).sort({ _id: -1 }).toArray() : [];
+    const videos = isConnected ? await videosCol.find({}).sort({ _id: -1 }).toArray() : [];
     let feedHTML = '';
     
     for (let v of videos) {
