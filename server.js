@@ -10,7 +10,8 @@ const fs = require('fs');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// MongoDB Atlas Bulut Bağlantısı (Not: <db_password> yerine kendi şifreni yazmalısın)
+// MongoDB Atlas Bulut Bağlantısı 
+// ÖNEMLİ: Aşağıdaki <db_password> yazan yere MongoDB Atlas'ta açtığın kullanıcının ŞİFRESİNİ yazmalısın!
 const MONGO_URL = process.env.MONGO_URL || "mongodb+srv://cinarsucu64_db_user:<db_password>@cluster0.utveete.mongodb.net/?retryWrites=true&w=majority";
 
 let db, usersCol, videosCol, commentsCol, followsCol, likesCol;
@@ -90,6 +91,8 @@ app.post('/register', async (req, res) => {
     if (!username || !nickname || !password) return res.send("<script>alert('Tüm alanları doldurun!'); window.location='/';</script>");
 
     try {
+        if (!usersCol) return res.send("<script>alert('Veritabanı bağlantısı henüz kurulmadı!'); window.location='/';</script>");
+        
         const cleanUsername = username.toLowerCase().trim();
         const existing = await usersCol.findOne({ username: cleanUsername });
         if (existing) return res.send("<script>alert('Bu kullanıcı adı zaten alınmış!'); window.location='/';</script>");
@@ -104,8 +107,8 @@ app.post('/register', async (req, res) => {
             banner: ''
         });
         res.send("<script>alert('Kayıt başarılı! Giriş yapabilirsiniz.'); window.location='/';</script>");
-    } catch {
-        res.send("<script>alert('Bir hata oluştu.'); window.location='/';</script>");
+    } catch (err) {
+        res.send(`<script>alert('Kayıt Hatası: ${err.message.replace(/'/g, "\\'")}'); window.location='/';</script>');`);
     }
 });
 
@@ -113,6 +116,8 @@ app.post('/register', async (req, res) => {
 app.post('/login', async (req, res) => {
     const { username, password } = req.body;
     try {
+        if (!usersCol) return res.send("<script>alert('Veritabanı bağlantısı henüz kurulmadı!'); window.location='/';</script>");
+        
         const user = await usersCol.findOne({ username: username.toLowerCase().trim() });
         if (!user) return res.send("<script>alert('Kullanıcı bulunamadı!'); window.location='/';</script>");
         
@@ -123,8 +128,8 @@ app.post('/login', async (req, res) => {
         } else {
             res.send("<script>alert('Hatalı şifre!'); window.location='/';</script>");
         }
-    } catch {
-        res.send("<script>alert('Giriş yapılırken hata oluştu.'); window.location='/';</script>");
+    } catch (err) {
+        res.send(`<script>alert('Giriş Hatası: ${err.message.replace(/'/g, "\\'")}'); window.location='/';</script>');`);
     }
 });
 
@@ -140,7 +145,7 @@ app.get('/search', async (req, res) => {
     let searchResultsVideos = [];
     let searchResultsUsers = [];
 
-    if (query) {
+    if (query && usersCol && videosCol) {
         searchResultsVideos = await videosCol.find({ 
             $or: [
                 { caption: { $regex: query,$options: 'i' } },
@@ -577,7 +582,7 @@ app.get('/', async (req, res) => {
                 <div id="loginView" class="hidden">
                     <h2>TikTok'a Giriş Yap</h2>
                     <form action="/login" method="POST" class="form-group">
-                        <input type="text" name="username" placeholder="Kullanıcı adı" required>
+                        <input type="text" name="username" password placeholder="Kullanıcı adı" required>
                         <input type="password" name="password" placeholder="Şifre" required>
                         <button type="submit" class="btn-red">Giriş Yap</button>
                     </form>
@@ -607,7 +612,7 @@ app.get('/', async (req, res) => {
         `);
     }
 
-    const videos = await videosCol.find({}).sort({ _id: -1 }).toArray();
+    const videos = videosCol ? await videosCol.find({}).sort({ _id: -1 }).toArray() : [];
     let feedHTML = '';
     
     for (let v of videos) {
