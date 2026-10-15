@@ -10,9 +10,8 @@ const fs = require('fs');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Render'da verilerin silinmemesi için Ücretsiz MongoDB Bulut Bağlantısı
-// (Kendi MongoDB Atlas bağlantı adresini buraya yazabilirsin veya Render Environment Variables kısmına ekleyebilirsin)
-const MONGO_URL = process.env.MONGO_URL || "mongodb+srv://ornekuser:ornek sifre@cluster.mongodb.net/?retryWrites=true&w=majority";
+// MongoDB Atlas Bulut Bağlantısı (Not: <db_password> yerine kendi şifreni yazmalısın)
+const MONGO_URL = process.env.MONGO_URL || "mongodb+srv://cinarsucu64_db_user:<db_password>@cluster0.utveete.mongodb.net/?retryWrites=true&w=majority";
 
 let db, usersCol, videosCol, commentsCol, followsCol, likesCol;
 
@@ -133,7 +132,7 @@ app.get('/logout', (req, res) => {
     req.session.destroy(() => res.redirect('/'));
 });
 
-// Arama / Keşfet Sayfası (Gönderdiğin fotoğraftaki gibi)
+// Arama / Keşfet Sayfası
 app.get('/search', async (req, res) => {
     if (!req.session.user) return res.redirect('/');
     const query = req.query.q || '';
