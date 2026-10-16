@@ -715,7 +715,7 @@ app.post('/send-msg/:targetUser', async (req, res) => {
     res.redirect('back');
 });
 
-// ANA SAYFA - BÜYÜTÜLMÜŞ YORUM PANELİ VE YANITLA (CEVAP VER) ÖZELLİĞİ
+// ANA SAYFA - KESİN ÇÖZÜLMÜŞ YORUM PANELİ VE YANITLA ÖZELLİĞİ
 app.get('/', async (req, res) => {
     if (!req.session.user) {
         return res.send(`
@@ -804,7 +804,7 @@ app.get('/', async (req, res) => {
                 <div class="comment-content" style="flex-grow:1;">
                     <div class="comment-author">${c.nickname || c.username}</div>
                     <div class="comment-text">${c.comment}</div>
-                    <div style="font-size:11px; color:#888; margin-top:4px; cursor:pointer;" onclick="replyToUser('${v._id}', '${c.nickname || c.username}')">Yanıtla</div>
+                    <div style="font-size:11px; color:#888; margin-top:4px; cursor:pointer; font-weight:bold;" onclick="replyToUser('${v._id}', '${c.nickname || c.username}')">Yanıtla</div>
                 </div>
             </div>`;
         });
@@ -827,7 +827,7 @@ app.get('/', async (req, res) => {
                 <a href="/share/${v._id}" onclick="alert('Kopyalandı!');" class="action-btn">↗️<span>${v.shares}</span></a>
             </div>
 
-            <!-- BÜYÜTÜLMÜŞ %75 YORUM PENCERESİ VE NET YAZMA ALANI -->
+            <!-- KESİN GÖRÜNÜR YAZMA ALANI VE YORUM MODALI -->
             <div id="commentModal-${v._id}" class="comment-modal">
                 <div class="comment-modal-header">
                     <span>${comments.length} yorum</span>
@@ -837,8 +837,8 @@ app.get('/', async (req, res) => {
                     ${commentList || '<div style="text-align:center; color:#888; margin-top:40px; font-size:14px;">Henüz yorum yok. İlk yorumu sen yap!</div>'}
                 </div>
                 <form action="/comment/${v._id}" method="POST" class="comment-input-form" autocomplete="off">
-                    <input type="text" id="commentInput-${v._id}" name="comment" placeholder="Yorum ekle..." required style="flex-grow:1; padding:12px 16px; background:#f1f1f2; border:none; border-radius:24px; outline:none; font-size:14px; color:#000;">
-                    <button type="submit" style="background:#FE2C55; color:#fff; border:none; padding:10px 18px; border-radius:24px; font-weight:bold; cursor:pointer; font-size:14px;">Gönder</button>
+                    <input type="text" id="commentInput-${v._id}" name="comment" placeholder="Yorum ekle..." required autocomplete="off">
+                    <button type="submit">Gönder</button>
                 </form>
             </div>
         </div>`;
@@ -869,17 +869,19 @@ app.get('/', async (req, res) => {
             .action-btn { background: rgba(0,0,0,0.4); width: 42px; height: 42px; border-radius: 50%; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 16px; color: #fff; }
             .sound-toggle { position: absolute; top: 65px; right: 15px; background: rgba(0,0,0,0.6); color: #fff; padding: 6px 12px; border-radius: 15px; font-size: 12px; z-index: 15; cursor: pointer; border: 1px solid rgba(255,255,255,0.3); }
             
-            /* BÜYÜTÜLMÜŞ %75 YORUM MODALI VE SABİT ALT KISIM */
+            /* KESİN ÇÖZÜLEN %75 YÜKSEKLİK VE SABİT GÖRÜNÜR GÖNDER BUTONLU YORUM PANELİ */
             .comment-modal { display: none; position: fixed; bottom: 0; left: 0; width: 100%; height: 75vh; background: #ffffff; color: #000000; z-index: 30000; border-top-left-radius: 20px; border-top-right-radius: 20px; flex-direction: column; box-shadow: 0 -5px 25px rgba(0,0,0,0.5); }
             .comment-modal-header { padding: 15px; border-bottom: 1px solid #f1f1f2; display: flex; justify-content: center; align-items: center; font-weight: bold; font-size: 16px; position: relative; flex-shrink: 0; }
             .comment-close-btn { position: absolute; right: 15px; cursor: pointer; font-size: 20px; color: #000; }
-            .comment-scroll-area { flex-grow: 1; overflow-y: auto; padding: 15px; min-height: 0; background: #ffffff; }
+            .comment-scroll-area { flex: 1 1 auto; overflow-y: auto; padding: 15px; background: #ffffff; min-height: 0; }
             .comment-item { display: flex; gap: 12px; margin-bottom: 16px; align-items: flex-start; }
             .comment-avatar { width: 36px; height: 36px; background: #eee; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 15px; flex-shrink: 0; overflow:hidden; font-weight:bold; }
             .comment-author { font-size: 13px; font-weight: bold; color: #555; }
             .comment-text { font-size: 14px; color: #111; margin-top: 3px; }
             
-            .comment-input-form { padding: 12px 15px; border-top: 1px solid #f1f1f2; display: flex; gap: 10px; background: #ffffff; align-items: center; flex-shrink: 0; }
+            .comment-input-form { flex-shrink: 0; padding: 12px 15px; border-top: 1px solid #e2e2e3; display: flex; gap: 10px; background: #ffffff; align-items: center; width: 100%; }
+            .comment-input-form input { flex-grow: 1; padding: 12px 16px; background: #f1f1f2; border: none; border-radius: 24px; outline: none; font-size: 14px; color: #000; }
+            .comment-input-form button { background: #FE2C55; color: #fff; border: none; padding: 10px 18px; border-radius: 24px; font-weight: bold; cursor: pointer; font-size: 14px; flex-shrink: 0; }
         </style>
         <script>
             let globalMutedState = true;
