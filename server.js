@@ -544,7 +544,7 @@ app.post('/send-msg/:targetUser', async (req, res) => {
     res.redirect('back');
 });
 
-// ANA SAYFA - VİDEO EKRANI TAM KAPLAMASI (object-fit: cover) SAĞLANDI
+// ANA SAYFA - VİDEO EKRANI TAM KAPLAMASI VE GELİŞMİŞ YORUM PANELİ
 app.get('/', async (req, res) => {
     if (!req.session.user) {
         return res.send(`
@@ -645,18 +645,22 @@ app.get('/', async (req, res) => {
                 <a href="/share/${v._id}" onclick="alert('Kopyalandı!');" class="action-btn">↗️<span>${v.shares}</span></a>
             </div>
 
-            <!-- BÜYÜTÜLMÜŞ VE RAHAT KULLANILABİLİR YORUM PANELİ -->
+            <!-- DÜZELTİLMİŞ VE EKSİZSİZ YORUM PANELİ -->
             <div id="commentModal-${v._id}" class="comment-modal">
-                <div style="padding:15px; border-bottom:1px solid #eee; display:flex; justify-content:space-between; align-items:center; font-weight:bold; font-size:15px;">
+                <div class="comment-modal-header">
                     <span>${comments.length} yorum</span>
-                    <span onclick="closeComments('${v._id}')" style="cursor:pointer; font-size:20px; padding:0 5px;">✕</span>
+                    <span onclick="closeComments('${v._id}')" class="comment-close-btn">✕</span>
                 </div>
-                <div style="flex-grow:1; overflow-y:scroll; padding:15px;">${commentList || '<p style="text-align:center; color:#888; margin-top:40px;">Henüz yorum yok. İlk yorumu sen yap!</p>'}</div>
-                <form action="/comment/${v._id}" method="POST" enctype="multipart/form-data" style="padding:12px 15px; border-top:1px solid #eee; display:flex; gap:10px; background:#fff; align-items:center;">
-                    <input type="text" name="comment" placeholder="Yorum ekleyin..." style="flex-grow:1; padding:12px 16px; background:#f1f1f2; border:none; border-radius:20px; outline:none; font-size:14px;" autocomplete="off" required>
+                <div class="comment-scroll-area">
+                    ${commentList || '<p style="text-align:center; color:#888; margin-top:40px;">Henüz yorum yok. İlk yorumu sen yap!</p>'}
+                </div>
+                <form action="/comment/${v._id}" method="POST" enctype="multipart/form-data" class="comment-input-form" autocomplete="off">
+                    <input type="text" name="comment" placeholder="Yorum ekleyin..." required>
                     <input type="file" name="image" accept="image/*" style="display:none;" id="img-${v._id}">
-                    <label for="img-${v._id}" style="cursor:pointer; font-size:20px;">🖼️</label>
-                    <button type="submit" style="background:#FE2C55; color:#fff; border:none; padding:10px 18px; border-radius:20px; font-weight:bold; cursor:pointer;">Gönder</button>
+                    <label for="img-${v._id}" class="comment-icon-btn">🖼️</label>
+                    <span class="comment-icon-btn">😊</span>
+                    <span class="comment-icon-btn">@</span>
+                    <button type="submit" class="comment-send-btn">Gönder</button>
                 </form>
             </div>
         </div>`;
@@ -685,12 +689,21 @@ app.get('/', async (req, res) => {
             .action-btn { background: rgba(0,0,0,0.4); width: 42px; height: 42px; border-radius: 50%; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 16px; color: #fff; }
             .sound-toggle { position: absolute; top: 65px; right: 15px; background: rgba(0,0,0,0.6); color: #fff; padding: 6px 12px; border-radius: 15px; font-size: 12px; z-index: 15; cursor: pointer; border: 1px solid rgba(255,255,255,0.3); }
             
+            /* Gelişmiş Yorum Modalı Stilleri */
             .comment-modal { display: none; position: fixed; bottom: 0; left: 0; width: 100%; height: 75vh; background: #fff; color: #000; z-index: 30000; border-top-left-radius: 16px; border-top-right-radius: 16px; flex-direction: column; box-shadow: 0 -5px 25px rgba(0,0,0,0.3); }
+            .comment-modal-header { padding: 15px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; font-weight: bold; font-size: 15px; flex-shrink: 0; }
+            .comment-close-btn { cursor: pointer; font-size: 20px; padding: 0 5px; }
+            .comment-scroll-area { flex-grow: 1; overflow-y: auto; padding: 15px; }
             .comment-item { display: flex; gap: 12px; margin-bottom: 16px; align-items: flex-start; }
             .comment-avatar { width: 36px; height: 36px; background: #eee; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0; }
             .comment-author { font-size: 12px; font-weight: bold; color: #666; }
             .comment-text { font-size: 14px; color: #111; margin-top: 3px; }
             .comment-sticker { max-width: 140px; border-radius: 8px; margin-top: 6px; }
+            
+            .comment-input-form { padding: 12px 15px; border-top: 1px solid #eee; display: flex; gap: 10px; background: #fff; align-items: center; flex-shrink: 0; }
+            .comment-input-form input[type="text"] { flex-grow: 1; padding: 12px 16px; background: #f1f1f2; border: none; border-radius: 20px; outline: none; font-size: 14px; color: #000; }
+            .comment-icon-btn { cursor: pointer; font-size: 20px; user-select: none; }
+            .comment-send-btn { background: #FE2C55; color: #fff; border: none; padding: 10px 18px; border-radius: 20px; font-weight: bold; cursor: pointer; flex-shrink: 0; }
         </style>
         <script>
             let globalMutedState = true;
