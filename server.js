@@ -69,7 +69,7 @@ function getNavbar(activeTab, username) {
             <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
             <span>Profil</span>
         </a>
-    `;
+    </div>`;
 }
 
 const globalStyles = `
@@ -133,6 +133,7 @@ app.get('/upload-story-page', (req, res) => {
         <form action="/upload-story" method="POST" enctype="multipart/form-data" style="display:flex; flex-direction:column; gap:15px; width:300px; background:#1a1a1a; padding:20px; border-radius:12px;">
             <input type="file" name="media" accept="image/*,video/*" required style="padding:10px; background:#2a2a2a; border:none; color:#fff; border-radius:6px;">
             <button type="submit" style="background:#FE2C55; color:#fff; padding:12px; border:none; border-radius:6px; font-weight:bold; cursor:pointer;">Paylaş</button>
+            <a href="/inbox" style="text-align:center; color:#888; font-size:13px;">İptal</a>
         </form>
         ${getNavbar('inbox', req.session.user.username)}
     </body>
@@ -378,6 +379,7 @@ app.get('/search', async (req, res) => {
     </html>`);
 });
 
+// GELEN KUTUSU & HİKAYELER (Görseldeki Gibi Tasarlandı)
 app.get('/inbox', async (req, res) => {
     if (!req.session.user || !isConnected) return res.redirect('/');
     const users = await usersCol.find({ _id: { $ne: new ObjectId(req.session.user._id) } }).toArray();
@@ -386,7 +388,7 @@ app.get('/inbox', async (req, res) => {
     let storiesHTML = `<div class="story-circle-item" onclick="window.location='/upload-story-page'"><div class="story-circle-ring plus-ring">+</div><span>Hikayen</span></div>`;
     stories.forEach(s => {
         let mediaTag = s.mediaType === 'video' ? `<video src="${s.mediaUrl}" style="width:100%; height:100%; border-radius:50%; object-fit:cover;"></video>` : `<img src="${s.mediaUrl}" style="width:100%; height:100%; border-radius:50%; object-fit:cover;">`;
-        storiesHTML += `<div class="story-circle-item" onclick="alert('Hikaye izleniyor!')"><div class="story-circle-ring">${mediaTag}</div><span>@${s.username}</span></div>`;
+        storiesHTML += `<div class="story-circle-item" onclick="viewStory('${s.mediaUrl}', '${s.mediaType}', '${s.username}')"><div class="story-circle-ring">${mediaTag}</div><span>@${s.username}</span></div>`;
     });
 
     let userListHTML = '';
@@ -404,9 +406,61 @@ app.get('/inbox', async (req, res) => {
             .story-circle-item { display: flex; flex-direction: column; align-items: center; gap: 5px; cursor: pointer; flex-shrink: 0; }
             .story-circle-ring { width: 58px; height: 58px; border-radius: 50%; background: linear-gradient(135deg, #25F4EE, #FE2C55); padding: 2px; display: flex; align-items: center; justify-content: center; }
             .story-circle-ring.plus-ring { background: #222; font-size: 26px; color: #fff; border: 1px solid #444; }
+            
+            /* GÖRSELDEKİ HİKAYE MODAL TASARIMI */
+            .story-viewer-modal { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: #000; z-index: 999999; flex-direction: column; justify-content: space-between; }
+            .story-top-bar { position: absolute; top: 15px; left: 0; width: 100%; display: flex; justify-content: space-between; align-items: center; padding: 0 15px; z-index: 10; box-sizing: border-box; }
+            .story-user-info { display: flex; align-items: center; gap: 10px; font-size: 14px; font-weight: bold; color: #fff; text-shadow: 0 1px 2px #000; }
+            .story-progress-bar { position: absolute; top: 5px; left: 10px; width: calc(100% - 20px); height: 2px; background: rgba(255,255,255,0.4); border-radius: 2px; overflow: hidden; }
+            .story-progress-fill { width: 100%; height: 100%; background: #fff; animation: storyProgress 5s linear forwards; }
+            @keyframes storyProgress { from { width: 0%; } to { width: 100%; } }
+            .story-bottom-bar { position: absolute; bottom: 20px; left: 0; width: 100%; display: flex; align-items: center; justify-content: space-between; padding: 0 15px; box-sizing: border-box; gap: 10px; z-index: 10; }
+            .story-msg-input { flex-grow: 1; background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); border-radius: 20px; padding: 10px 15px; color: #fff; font-size: 13px; outline: none; }
         </style>
+        <script>
+            function viewStory(url, type, username) {
+                const viewer = document.getElementById('storyViewerModal');
+                const content = document.getElementById('storyMediaContent');
+                document.getElementById('storyUsername').innerText = '@' + username;
+                if (type === 'video') {
+                    content.innerHTML = '<video src="' + url + '" autoplay style="width:100%; height:100%; object-fit:contain;"></video>';
+                } else {
+                    content.innerHTML = '<img src="' + url + '" style="width:100%; height:100%; object-fit:contain;">';
+                }
+                viewer.style.display = 'flex';
+            }
+            function closeStoryViewer() {
+                document.getElementById('storyViewerModal').style.display = 'none';
+                document.getElementById('storyMediaContent').innerHTML = '';
+            }
+        </script>
     </head>
     <body>
+        <div id="storyViewerModal" class="story-viewer-modal">
+            <div class="story-progress-bar"><div class="story-progress-fill"></div></div>
+            <div class="story-top-bar">
+                <div class="story-user-info">
+                    <div style="width:32px; height:32px; background:#FE2C55; border-radius:50%; display:flex; align-items:center; justify-content:center;">👤</div>
+                    <span id="storyUsername">@kullanici</span>
+                    <span style="font-size:12px; color:#ddd; font-weight:normal;">• 2s önce</span>
+                </div>
+                <div style="display:flex; align-items:center; gap:10px;">
+                    <button style="background:#FE2C55; border:none; color:#fff; padding:4px 14px; border-radius:12px; font-weight:bold; font-size:12px;">Takip Et</button>
+                    <span onclick="closeStoryViewer()" style="font-size:24px; cursor:pointer; font-weight:bold; color:#fff;">✕</span>
+                </div>
+            </div>
+            
+            <div id="storyMediaContent" style="width:100%; height:100%; display:flex; align-items:center; justify-content:center;"></div>
+            
+            <div class="story-bottom-bar">
+                <input type="text" class="story-msg-input" placeholder="Mesaj...">
+                <span style="font-size:22px; cursor:pointer;">👍</span>
+                <span style="font-size:22px; cursor:pointer;">😍</span>
+                <span style="font-size:22px; cursor:pointer;">❤️</span>
+                <span style="font-size:22px; cursor:pointer;">↪️</span>
+            </div>
+        </div>
+
         <div class="story-inbox-bar">${storiesHTML}</div>
         <h3 style="padding:15px; margin:0;">Mesajlar</h3>
         ${userListHTML}
@@ -454,31 +508,66 @@ app.post('/send-msg/:targetUser', async (req, res) => {
     res.redirect('back');
 });
 
-// ANA SAYFA - FULL SCREEN & SCROLL FIX
+// ANA SAYFA - ESKİ TEMİZ BEYAZ GİRİŞ/KAYIT VE YEREL TAM EKRAN (FULLSCREEN API)
 app.get('/', async (req, res) => {
     if (!req.session.user) {
         return res.send(`
         <!DOCTYPE html>
         <html lang="tr">
-        <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>TikTok</title>
-            <style>body{background:#000; color:#fff; font-family:sans-serif; display:flex; flex-direction:column; justify-content:center; align-items:center; height:100vh; margin:0;} input{width:280px; padding:12px; margin:8px 0; background:#262626; border:none; color:#fff; border-radius:6px;} button{width:280px; padding:12px; background:#FE2C55; color:#fff; border:none; font-weight:bold; border-radius:6px; cursor:pointer;}</style>
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>TikTok'a Kaydolun</title>
+            <style>
+                body { background: #fff; color: #000; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; margin: 0; padding: 20px; box-sizing: border-box; }
+                .container { width: 100%; max-width: 380px; text-align: center; }
+                h2 { font-size: 26px; font-weight: bold; margin-bottom: 30px; }
+                .form-group { display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px; }
+                input { width: 100%; padding: 14px; background: #f1f1f2; border: none; border-radius: 4px; font-size: 15px; box-sizing: border-box; outline: none; }
+                .btn-red { width: 100%; padding: 14px; background: #FE2C55; color: white; border: none; border-radius: 4px; font-weight: bold; font-size: 16px; cursor: pointer; }
+                .footer-text { position: fixed; bottom: 20px; width: 100%; text-align: center; font-size: 14px; color: #333; }
+                .footer-text span { color: #FE2C55; font-weight: bold; cursor: pointer; }
+            </style>
         </head>
         <body>
-            <div style="background:#161616; padding:30px; border-radius:12px; text-align:center;">
-                <h2>TikTok'a Giriş Yap</h2>
-                <form action="/login" method="POST">
-                    <input type="text" name="username" placeholder="Kullanıcı adı" required>
-                    <input type="password" name="password" placeholder="Şifre" required>
-                    <button type="submit">Giriş Yap</button>
-                </form>
-                <br>
-                <form action="/register" method="POST">
-                    <input type="text" name="username" placeholder="Kullanıcı adı" required>
-                    <input type="text" name="nickname" placeholder="Takma ad" required>
-                    <input type="password" name="password" placeholder="Şifre" required>
-                    <button type="submit" style="background:#333;">Kayıt Ol</button>
-                </form>
+            <div class="container">
+                <div id="registerView">
+                    <h2>TikTok'a kaydolun</h2>
+                    <form action="/register" method="POST" class="form-group">
+                        <input type="text" name="username" placeholder="Kullanıcı adı" required>
+                        <input type="text" name="nickname" placeholder="Takma ad (Görünen isim)" required>
+                        <input type="password" name="password" placeholder="Şifre" required>
+                        <button type="submit" class="btn-red">Kayıt Ol</button>
+                    </form>
+                </div>
+                <div id="loginView" style="display:none;">
+                    <h2>TikTok'a Giriş Yap</h2>
+                    <form action="/login" method="POST" class="form-group">
+                        <input type="text" name="username" placeholder="Kullanıcı adı" required>
+                        <input type="password" name="password" placeholder="Şifre" required>
+                        <button type="submit" class="btn-red">Giriş Yap</button>
+                    </form>
+                </div>
             </div>
+            <div class="footer-text" id="footerText">
+                Zaten bir hesabınız var mı? <span onclick="toggleView()">Giriş yap</span>
+            </div>
+            <script>
+                function toggleView() {
+                    const reg = document.getElementById('registerView');
+                    const log = document.getElementById('loginView');
+                    const footer = document.getElementById('footerText');
+                    if (reg.style.display === 'none') {
+                        reg.style.display = 'block';
+                        log.style.display = 'none';
+                        footer.innerHTML = 'Zaten bir hesabınız var mı? <span onclick="toggleView()">Giriş yap</span>';
+                    } else {
+                        reg.style.display = 'none';
+                        log.style.display = 'block';
+                        footer.innerHTML = 'Hesabınız yok mu? <span onclick="toggleView()">Kayıt ol</span>';
+                    }
+                }
+            </script>
         </body>
         </html>`);
     }
@@ -506,15 +595,15 @@ app.get('/', async (req, res) => {
         <div class="video-container" id="container-${v._id}">
             <video id="vid-${v._id}" src="${v.filename}" loop playsinline class="feed-video"></video>
             <div class="sound-toggle" onclick="toggleSound('vid-${v._id}', this)">🔊 Sesi Aç</div>
-            <div class="fullscreen-btn" onclick="toggleCustomFullscreen('container-${v._id}')">⛶ Tam Ekran</div>
+            <div class="fullscreen-btn" onclick="toggleNativeFullscreen('vid-${v._id}')">⛶ Tam Ekran</div>
             
-            <div class="video-info hide-on-fullscreen">
+            <div class="video-info">
                 <a href="/profile/${v.username}" style="font-weight: bold; font-size: 15px;">@${v.username}</a>
                 <p style="margin: 5px 0; font-size: 14px;">${v.caption}</p>
                 <p style="margin: 0; font-size: 12px; color: #ddd;">🎵 ${v.song}</p>
             </div>
             
-            <div class="sidebar-actions hide-on-fullscreen">
+            <div class="sidebar-actions">
                 <a href="/like/${v._id}" class="action-btn">❤️<span>${v.likes}</span></a>
                 <a href="#" onclick="openComments('${v._id}'); return false;" class="action-btn">💬<span>${comments.length}</span></a>
                 <a href="/favorite/${v._id}" class="action-btn">⭐<span>${v.favorites}</span></a>
@@ -551,17 +640,13 @@ app.get('/', async (req, res) => {
             .feed-scroll { height: 100vh; overflow-y: scroll; scroll-snap-type: y mandatory; -webkit-overflow-scrolling: touch; }
             .video-container { width: 100vw; height: 100vh; scroll-snap-align: start; position: relative; display: flex; justify-content: center; align-items: center; background: #000; }
             
-            /* pointer-events: none sayesinde video üzerinde kaydırma/kaydırma engellenmez, pürüzsüz kayar */
-            .feed-video { width: 100%; height: 100%; object-fit: contain; position: absolute; top: 0; left: 0; pointer-events: none; }
+            .feed-video { width: 100%; height: 100%; object-fit: contain; position: absolute; top: 0; left: 0; }
             
             .video-info { position: absolute; bottom: 80px; left: 15px; z-index: 10; max-width: 70%; text-shadow: 0 1px 2px #000; }
             .sidebar-actions { position: absolute; bottom: 90px; right: 15px; z-index: 10; display: flex; flex-direction: column; gap: 14px; align-items: center; }
             .action-btn { background: rgba(0,0,0,0.4); width: 42px; height: 42px; border-radius: 50%; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 16px; color: #fff; }
             .sound-toggle { position: absolute; top: 65px; right: 15px; background: rgba(0,0,0,0.6); color: #fff; padding: 6px 12px; border-radius: 15px; font-size: 12px; z-index: 15; cursor: pointer; border: 1px solid rgba(255,255,255,0.3); }
             .fullscreen-btn { position: absolute; top: 65px; right: 120px; background: rgba(0,0,0,0.6); color: #fff; padding: 6px 12px; border-radius: 15px; font-size: 12px; z-index: 15; cursor: pointer; border: 1px solid rgba(255,255,255,0.3); }
-            
-            /* Tam Ekran Olunca Gizlenecekler (Beğeni, yorumlar, açıklama vb.) */
-            .video-container.is-fullscreen .hide-on-fullscreen { display: none !important; }
             
             .comment-modal { display: none; position: fixed; bottom: 0; left: 0; width: 100%; height: 70vh; background: #fff; color: #000; z-index: 30000; border-top-left-radius: 12px; border-top-right-radius: 12px; flex-direction: column; }
             .comment-item { display: flex; gap: 10px; margin-bottom: 10px; }
@@ -579,9 +664,15 @@ app.get('/', async (req, res) => {
                 else { vid.muted = true; globalMutedState = true; btn.innerText = "🔊 Sesi Aç"; }
             }
 
-            function toggleCustomFullscreen(containerId) {
-                const container = document.getElementById(containerId);
-                container.classList.toggle('is-fullscreen');
+            function toggleNativeFullscreen(videoId) {
+                const vid = document.getElementById(videoId);
+                if (vid.requestFullscreen) {
+                    vid.requestFullscreen();
+                } else if (vid.webkitRequestFullscreen) {
+                    vid.webkitRequestFullscreen();
+                } else if (vid.msRequestFullscreen) {
+                    vid.msRequestFullscreen();
+                }
             }
 
             function openComments(id) { document.getElementById('commentModal-' + id).style.display = 'flex'; }
