@@ -12,7 +12,7 @@ const PORT = process.env.PORT || 3000;
 
 const MONGO_URL = process.env.MONGO_URL || "mongodb+srv://cinarsucu04_db_user:46vjLI7sNK7djBeE@cluster0.utveet0.mongodb.net/?retryWrites=true&w=majority";
 
-let db, usersCol, videosCol, commentsCol, followsCol, likesCol, storiesCol, messagesCol;
+let db, usersCol, videosCol, commentsCol, followsCol, likesCol, storiesCol, messagesCol, searchesCol;
 let isConnected = false;
 
 MongoClient.connect(MONGO_URL)
@@ -25,6 +25,7 @@ MongoClient.connect(MONGO_URL)
         likesCol = db.collection('likes');
         storiesCol = db.collection('stories');
         messagesCol = db.collection('messages');
+        searchesCol = db.collection('searches');
         isConnected = true;
         console.log("MongoDB veritabanı bağlantısı başarılı!");
     })
@@ -236,7 +237,15 @@ app.post('/comment/:id', upload.single('image'), async (req, res) => {
     if (!req.session.user || !isConnected) return res.redirect('/');
     try {
         let imageUrl = req.file ? `/uploads/${req.file.filename}` : '';
-        await commentsCol.insertOne({ video_id: new ObjectId(req.params.id), username: req.session.user.username, comment: req.body.comment || '', image: imageUrl, createdAt: new Date() });
+        await commentsCol.insertOne({ 
+            video_id: new ObjectId(req.params.id), 
+            username: req.session.user.username, 
+            nickname: req.session.user.nickname,
+            avatar: req.session.user.avatar || '',
+            comment: req.body.comment || '', 
+            image: imageUrl, 
+            createdAt: new Date() 
+        });
     } catch (err) { console.error(err); }
     res.redirect('back');
 });
@@ -402,7 +411,17 @@ app.get('/profile/:username', async (req, res) => {
 
 app.get('/search', async (req, res) => {
     if (!req.session.user) return res.redirect('/');
-    const query = req.query.q || '';
+    const query = (req.query.q || '').trim();
+    
+    if (query && isConnected) {
+        await searchesCol.updateOne(
+            { user_id: new ObjectId(req.session.user._id), query: query },
+            { $set: { updatedAt: new Date() } },
+            { upsert: true }
+        );
+    }
+
+    let userSearches = isConnected ? await searchesCol.find({ user_id: new ObjectId(req.session.user._id) }).sort({ updatedAt: -1 }).limit(5).toArray() : [];
     let searchResultsVideos = [], searchResultsUsers = [];
 
     if (query && isConnected) {
@@ -410,24 +429,76 @@ app.get('/search', async (req, res) => {
         searchResultsUsers = await usersCol.find({ $or: [{ username: { $regex: query,$options: 'i' } }, { nickname: { $regex: query,$options: 'i' } }] }).toArray();
     }
 
-    let resultsHTML = '';
-    if (query) {
-        resultsHTML += `<h3 style="padding: 15px;">Kullanıcılar</h3>`;
-        searchResultsUsers.forEach(u => {
-            resultsHTML += `<a href="/profile/${u.username}" style="display:flex; align-items:center; gap:12px; padding:12px 15px; border-bottom:1px solid #1a1a1a;"><b>${u.nickname}</b> (@${u.username})</a>`;
+    let dynamicListHTML = '';
+    if (!query) {
+        let defaultSuggestions = ['motivasyon', 'greenlerin büyükşehir maceraları', 'calisthenics workout', 'huzurlu videoları aesthetic', 'Kore Dizileri Burda', 'motivation video', 'kola tersine soyuducu', 'hallonda'];
+        
+        userSearches.forEach(s => {
+            if(!defaultSuggestions.includes(s.query)) {
+                defaultSuggestions.unshift(s.query);
+            }
         });
+
+        defaultSuggestions.forEach((item, index) => {
+            let isRelated = index < userSearches.length;
+            dynamicListHTML += `
+            <a href="/search?q=${encodeURIComponent(item)}" style="display:flex; align-items:center; justify-content:space-between; padding:14px 16px; border-bottom:1px solid #f1f1f2; color:#000; font-size:15px;">
+                <div style="display:flex; align-items:center; gap:14px;">
+                    <span style="width:6px; height:6px; background:${isRelated ? '#FE2C55' : '#888'}; border-radius:50%;"></span>
+                    <span>${item}</span>
+                </div>
+                ${isRelated ? '<span style="font-size:12px; color:#888;">Aramanızla ilgili</span>' : ''}
+            </a>`;
+        });
+    } else {
+        dynamicListHTML += `<div style="padding:15px; font-weight:bold; font-size:16px; color:#000;">Kullanıcılar</div>`;
+        if(searchResultsUsers.length > 0) {
+            searchResultsUsers.forEach(u => {
+                dynamicListHTML += `<a href="/profile/${u.username}" style="display:flex; align-items:center; gap:12px; padding:12px 16px; border-bottom:1px solid #f1f1f2; color:#000;"><div style="width:36px; height:36px; background:#FE2C55; color:#fff; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:bold;">👤</div><div><b>${u.nickname}</b><div style="font-size:12px; color:#888;">@${u.username}</div></div></a>`;
+            });
+        } else {
+            dynamicListHTML += `<div style="padding:15px; color:#888; font-size:14px;">Kullanıcı bulunamadı.</div>`;
+        }
+
+        dynamicListHTML += `<div style="padding:15px; font-weight:bold; font-size:16px; color:#000; margin-top:10px;">Videolar</div>`;
+        if(searchResultsVideos.length > 0) {
+            searchResultsVideos.forEach(v => {
+                dynamicListHTML += `<div style="padding:12px 16px; border-bottom:1px solid #f1f1f2; color:#000; font-size:14px;">🎬 <b>@${v.username}</b>: ${v.caption}</div>`;
+            });
+        } else {
+            dynamicListHTML += `<div style="padding:15px; color:#888; font-size:14px;">Video bulunamadı.</div>`;
+        }
     }
 
     res.send(`
     <!DOCTYPE html>
     <html lang="tr">
-    <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Ara</title><style>${globalStyles}</style></head>
+    <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Ara</title>
+        <style>
+            ${globalStyles}
+            body { background: #fff; color: #000; padding-bottom: 70px; }
+            .search-top-bar { display: flex; align-items: center; gap: 12px; padding: 12px 15px; background: #fff; border-bottom: 1px solid #eee; position: sticky; top: 0; z-index: 100; }
+            .search-input-wrapper { flex-grow: 1; background: #f1f1f2; border-radius: 8px; display: flex; align-items: center; padding: 0 12px; height: 40px; gap: 10px; }
+            .search-input-wrapper input { width: 100%; background: transparent; border: none; outline: none; font-size: 15px; color: #000; }
+        </style>
+    </head>
     <body>
-        <form action="/search" method="GET" style="padding:12px 15px; display:flex; gap:10px;">
-            <input type="text" name="q" placeholder="Ara..." value="${query}" style="flex-grow:1; padding:10px; background:#262626; border:none; color:#fff; border-radius:8px;">
-            <button type="submit" style="background:#FE2C55; color:#fff; border:none; padding:10px 15px; border-radius:8px; font-weight:bold;">Ara</button>
-        </form>
-        ${resultsHTML}
+        <div class="search-top-bar">
+            <a href="/" style="font-size:24px; font-weight:bold; color:#000;">‹</a>
+            <form action="/search" method="GET" class="search-input-wrapper">
+                <span style="color:#666; font-size:16px;">🔍</span>
+                <input type="text" name="q" placeholder="Arama yap..." value="${query}" autocomplete="off">
+                <span style="color:#666; font-size:18px;">🎤</span>
+            </form>
+            <a href="/search" style="color:#FE2C55; font-weight:bold; font-size:15px;">Ara</a>
+        </div>
+
+        ${!query ? '<div style="padding:15px 15px 5px 15px; font-weight:bold; font-size:16px; color:#000; display:flex; justify-content:space-between; align-items:center;"><span>Şunları beğenebilirsiniz</span><span style="font-size:13px; color:#888; cursor:pointer;" onclick="location.reload()">🔄 Yenile</span></div>' : ''}
+        
+        <div style="background:#fff;">
+            ${dynamicListHTML}
+        </div>
+
         ${getNavbar('search', req.session.user.username)}
     </body>
     </html>`);
@@ -633,7 +704,7 @@ app.post('/send-msg/:targetUser', async (req, res) => {
     res.redirect('back');
 });
 
-// ANA SAYFA - BEYAZ MOD YORUM PANELİ VE VİDEO AKIŞI
+// ANA SAYFA - SADE YORUM PENCERESİ (YAZI YOK, SADECE FOTOĞRAF, NICKNAME VE PROFİL FOTOĞRAFI)
 app.get('/', async (req, res) => {
     if (!req.session.user) {
         return res.send(`
@@ -705,12 +776,12 @@ app.get('/', async (req, res) => {
         const comments = await commentsCol.find({ video_id: v._id }).sort({ _id: -1 }).toArray();
         let commentList = '';
         comments.forEach(c => {
+            let commenterAvatar = c.avatar ? `<img src="${c.avatar}" style="width:100%; height:100%; border-radius:50%; object-fit:cover;">` : (c.nickname ? c.nickname.charAt(0).toUpperCase() : '👤');
             commentList += `
             <div class="comment-item">
-                <div class="comment-avatar">👤</div>
+                <div class="comment-avatar">${commenterAvatar}</div>
                 <div class="comment-content">
-                    <div class="comment-author">@${c.username}</div>
-                    <div class="comment-text">${c.comment}</div>
+                    <div class="comment-author">${c.nickname || c.username}</div>
                     ${c.image ? `<img src="${c.image}" class="comment-sticker">` : ''}
                 </div>
             </div>`;
@@ -734,22 +805,23 @@ app.get('/', async (req, res) => {
                 <a href="/share/${v._id}" onclick="alert('Kopyalandı!');" class="action-btn">↗️<span>${v.shares}</span></a>
             </div>
 
-            <!-- GÖNDERDİĞİN FOTOĞRAFTAKİ BİREBİR BEYAZ MOD TIKTOK YORUM MODALI -->
+            <!-- ESKİ / SADE YORUM MODALI (SADECE FOTOĞRAF GÖNDERME VE NICKNAME) -->
             <div id="commentModal-${v._id}" class="comment-modal">
                 <div class="comment-modal-header">
                     <span>${comments.length} yorum</span>
                     <span onclick="closeComments('${v._id}')" class="comment-close-btn">✕</span>
                 </div>
                 <div class="comment-scroll-area">
-                    ${commentList || '<div style="text-align:center; color:#888; margin-top:60px; font-size:14px;">Henüz yorum yok. İlk yorumu sen yap!</div>'}
+                    ${commentList || '<div style="text-align:center; color:#888; margin-top:60px; font-size:14px;">Henüz yorum yok. İlk görseli sen paylaş!</div>'}
                 </div>
                 <form action="/comment/${v._id}" method="POST" enctype="multipart/form-data" class="comment-input-form" autocomplete="off">
-                    <div class="comment-user-avatar">👤</div>
-                    <input type="text" id="cInput-${v._id}" name="comment" placeholder="Yorum ekleyin..." required>
-                    <input type="file" name="image" accept="image/*" style="display:none;" id="img-${v._id}">
-                    <label for="img-${v._id}" class="comment-icon-btn">🖼️</label>
-                    <span class="comment-icon-btn" onclick="addCommentEmoji('${v._id}', '😊')">😊</span>
-                    <span class="comment-icon-btn" onclick="addCommentEmoji('${v._id}', '@')">@</span>
+                    <div class="comment-user-avatar">${req.session.user.avatar ? `<img src="${req.session.user.avatar}" style="width:100%; height:100%; border-radius:50%; object-fit:cover;">` : req.session.user.nickname.charAt(0).toUpperCase()}</div>
+                    <div style="flex-grow:1; display:flex; align-items:center; background:#f1f1f2; border-radius:20px; padding:8px 15px; gap:10px;">
+                        <input type="file" name="image" accept="image/*" required style="display:none;" id="img-${v._id}" onchange="this.form.submit()">
+                        <label for="img-${v._id}" style="cursor:pointer; font-size:15px; color:#666; display:flex; align-items:center; gap:6px;">
+                            <span>🖼️</span> <span>Fotoğraf seç ve gönder</span>
+                        </label>
+                    </div>
                 </form>
             </div>
         </div>`;
@@ -767,6 +839,8 @@ app.get('/', async (req, res) => {
             .top-tabs a { color: #aaa; }
             .top-tabs a.active { color: #fff; border-bottom: 2px solid #fff; padding-bottom: 4px; }
             
+            .top-search-btn { position: fixed; top: 10px; right: 15px; z-index: 1005; color: #fff; font-size: 20px; display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 50%; background: rgba(0,0,0,0.3); }
+            
             .feed-scroll { height: 100vh; overflow-y: scroll; scroll-snap-type: y mandatory; -webkit-overflow-scrolling: touch; }
             .video-container { width: 100vw; height: 100vh; scroll-snap-align: start; position: relative; display: flex; justify-content: center; align-items: center; background: #000; }
             
@@ -777,21 +851,17 @@ app.get('/', async (req, res) => {
             .action-btn { background: rgba(0,0,0,0.4); width: 42px; height: 42px; border-radius: 50%; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 16px; color: #fff; }
             .sound-toggle { position: absolute; top: 65px; right: 15px; background: rgba(0,0,0,0.6); color: #fff; padding: 6px 12px; border-radius: 15px; font-size: 12px; z-index: 15; cursor: pointer; border: 1px solid rgba(255,255,255,0.3); }
             
-            /* BEYAZ MOD TIKTOK YORUM MODALI (FOTOĞRAFA BİREBİR UYUMLU) */
             .comment-modal { display: none; position: fixed; bottom: 0; left: 0; width: 100%; height: 75vh; background: #ffffff; color: #000000; z-index: 30000; border-top-left-radius: 16px; border-top-right-radius: 16px; flex-direction: column; box-shadow: 0 -5px 25px rgba(0,0,0,0.3); }
             .comment-modal-header { padding: 15px; border-bottom: 1px solid #f1f1f2; display: flex; justify-content: center; align-items: center; font-weight: bold; font-size: 15px; position: relative; flex-shrink: 0; }
             .comment-close-btn { position: absolute; right: 15px; cursor: pointer; font-size: 20px; color: #000; }
             .comment-scroll-area { flex-grow: 1; overflow-y: auto; padding: 15px; min-height: 0; background: #ffffff; }
             .comment-item { display: flex; gap: 12px; margin-bottom: 16px; align-items: flex-start; }
-            .comment-avatar { width: 36px; height: 36px; background: #eee; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0; }
-            .comment-author { font-size: 12px; font-weight: bold; color: #666; }
-            .comment-text { font-size: 14px; color: #111; margin-top: 3px; }
-            .comment-sticker { max-width: 140px; border-radius: 8px; margin-top: 6px; }
+            .comment-avatar { width: 36px; height: 36px; background: #eee; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0; overflow:hidden; font-weight:bold; }
+            .comment-author { font-size: 13px; font-weight: bold; color: #333; }
+            .comment-sticker { max-width: 180px; border-radius: 8px; margin-top: 6px; display: block; }
             
             .comment-input-form { padding: 10px 15px; border-top: 1px solid #f1f1f2; display: flex; gap: 12px; background: #ffffff; align-items: center; flex-shrink: 0; }
-            .comment-user-avatar { width: 32px; height: 32px; background: #333; color: #fff; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; flex-shrink: 0; }
-            .comment-input-form input[type="text"] { flex-grow: 1; padding: 10px 16px; background: #f1f1f2; border: none; border-radius: 20px; outline: none; font-size: 14px; color: #000; min-width: 0; }
-            .comment-icon-btn { cursor: pointer; font-size: 22px; user-select: none; flex-shrink: 0; }
+            .comment-user-avatar { width: 32px; height: 32px; background: #333; color: #fff; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; flex-shrink: 0; overflow:hidden; font-weight:bold; }
         </style>
         <script>
             let globalMutedState = true;
@@ -804,16 +874,6 @@ app.get('/', async (req, res) => {
 
             function openComments(id) { document.getElementById('commentModal-' + id).style.display = 'flex'; }
             function closeComments(id) { document.getElementById('commentModal-' + id).style.display = 'none'; }
-            
-            function addCommentEmoji(id, text) {
-                const inp = document.getElementById('cInput-' + id);
-                if(text === '@') {
-                    inp.value += '@';
-                } else {
-                    inp.value += text;
-                }
-                inp.focus();
-            }
 
             document.addEventListener("DOMContentLoaded", () => {
                 const containers = document.querySelectorAll('.video-container');
@@ -839,6 +899,8 @@ app.get('/', async (req, res) => {
             <a href="/?feed=following" class="${feedType === 'following' ? 'active' : ''}">Takip edilen</a>
             <a href="/?feed=foryou" class="${feedType === 'foryou' ? 'active' : ''}">Sizin için</a>
         </div>
+
+        <a href="/search" class="top-search-btn">🔍</a>
 
         <div class="feed-scroll">
             ${feedHTML || '<div style="display:flex; justify-content:center; align-items:center; height:100vh; color:#666;">Henüz video yok. Alttaki "+" butonundan paylaş!</div>'}
