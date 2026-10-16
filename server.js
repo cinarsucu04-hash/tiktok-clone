@@ -4,13 +4,18 @@ const bcrypt = require('bcrypt');
 const bodyParser = require('body-parser');
 const session = require('express-session');
 const multer = require('multer');
-const fs = require('fs');
-const path = require('path');
+const cloudinary = require('cloudinary').v2;
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 const MONGO_URL = process.env.MONGO_URL || "mongodb+srv://cinarsucu04_db_user:46vjLI7sNK7djBeE@cluster0.utveet0.mongodb.net/?retryWrites=true&w=majority";
+
+cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME || 'lcnq6io8',
+    api_key: process.env.CLOUDINARY_API_KEY || '65673898511923',
+    api_secret: process.env.CLOUDINARY_API_SECRET
+});
 
 let db, usersCol, videosCol, commentsCol, followsCol, likesCol, storiesCol;
 let isConnected = false;
@@ -25,33 +30,36 @@ MongoClient.connect(MONGO_URL)
         likesCol = db.collection('likes');
         storiesCol = db.collection('stories');
         isConnected = true;
-        console.log("MongoDB veritabanı bağlantısı başarılı!");
+        console.log("MongoDB bulut veritabanına başarıyla bağlandı!");
     })
-    .catch(err => console.error("Veritabanı hatası:", err));
-
-const uploadDir = path.join(__dirname, 'public', 'uploads');
-if (!fs.existsSync(uploadDir)) {
-    fs.mkdirSync(uploadDir, { recursive: true });
-}
-
-const storage = multer.diskStorage({
-    destination: (req, file, cb) => {
-        cb(null, uploadDir);
-    },
-    filename: (req, file, cb) => {
-        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-        cb(null, uniqueSuffix + path.extname(file.originalname));
-    }
-});
+    .catch(err => console.error("Veritabanı bağlantı hatası:", err));
 
 const upload = multer({ 
-    storage: storage,
-    limits: { fileSize: 100 * 1024 * 1024 }
+    storage: multer.memoryStorage()
 });
+
+const uploadToCloudinary = (fileBuffer, resourceType = 'auto') => {
+    return new Promise((resolve, reject) => {
+        const uploadStream = cloudinary.uploader.upload_stream(
+            { 
+                resource_type: resourceType,
+                timeout: 120000
+            },
+            (error, result) => {
+                if (error) {
+                    console.error("Cloudinary Yükleme Hatası Detayı:", error);
+                    reject(error);
+                } else {
+                    resolve(result);
+                }
+            }
+        );
+        uploadStream.end(fileBuffer);
+    });
+};
 
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
-app.use(express.static('public'));
 app.use(session({
     secret: 'tiktok-cloud-key',
     resave: false,
@@ -85,21 +93,22 @@ function getNavbar(activeTab, username) {
 }
 
 const globalStyles = `
-    body { background: #000; color: #fff; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0; padding-bottom: 60px; overflow-x: hidden; }
+    * { box-sizing: border-box; }
+    body { background: #000; color: #fff; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0; padding-bottom: 70px; min-height: 100vh; overflow-x: hidden; }
     a { text-decoration: none; color: inherit; }
-    .tiktok-nav { position: fixed; bottom: 0; left: 0; width: 100%; height: 55px; background: #121212; display: flex; justify-content: space-around; align-items: center; border-top: 1px solid #222; z-index: 1000; }
+    .tiktok-nav { position: fixed; bottom: 0; left: 0; width: 100%; height: 60px; background: #121212; display: flex; justify-content: space-around; align-items: center; border-top: 1px solid #222; z-index: 99999; }
     .tiktok-nav a { display: flex; flex-direction: column; align-items: center; color: #888; font-size: 10px; gap: 3px; }
     .tiktok-nav a.active { color: #fff; }
     .plus-btn { position: relative; top: -5px; }
     .plus-icon { width: 40px; height: 26px; background: linear-gradient(90deg, #25F4EE 0%, #FE2C55 100%); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: #000; font-size: 22px; font-weight: bold; }
     
-    .progress-overlay { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.85); z-index: 9999; flex-direction: column; justify-content: center; align-items: center; text-align: center; }
+    .progress-overlay { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.85); z-index: 999999; flex-direction: column; justify-content: center; align-items: center; text-align: center; }
     .progress-bar-bg { width: 80%; max-width: 300px; height: 12px; background: #333; border-radius: 6px; overflow: hidden; margin-top: 15px; }
     .progress-bar-fill { width: 0%; height: 100%; background: #FE2C55; transition: width 0.2s ease; }
 `;
 
 app.post('/register', async (req, res) => {
-    if (!isConnected) return res.send("<script>alert('Veritabanı bağlanıyor, lütfen tekrar deneyin!'); window.location='/';</script>");
+    if (!isConnected) return res.send("<script>alert('Veritabanı bağlanıyor...'); window.location='/';</script>");
     const { username, nickname, password } = req.body;
     if (!username || !nickname || !password) return res.send("<script>alert('Tüm alanları doldurun!'); window.location='/';</script>");
 
@@ -158,7 +167,7 @@ app.get('/upload-story-page', (req, res) => {
         <title>Hikaye Ekle</title>
         <style>
             ${globalStyles}
-            .container { padding: 30px 20px; display: flex; flex-direction: column; align-items: center; justify-content: center; height: calc(100vh - 55px); box-sizing: border-box; }
+            .container { padding: 30px 20px; display: flex; flex-direction: column; align-items: center; justify-content: center; height: calc(100vh - 60px); box-sizing: border-box; }
             .form-box { width: 100%; max-width: 350px; background: #1a1a1a; padding: 20px; border-radius: 12px; display: flex; flex-direction: column; gap: 15px; }
             .form-box input { padding: 12px; background: #2a2a2a; border: none; color: #fff; border-radius: 6px; box-sizing: border-box; }
             .btn { background: #FE2C55; color: #fff; padding: 12px; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; text-align: center; }
@@ -166,7 +175,7 @@ app.get('/upload-story-page', (req, res) => {
     </head>
     <body>
         <div class="progress-overlay" id="progressOverlay">
-            <h3>Hikaye Yükleniyor...</h3>
+            <h3>Hikaye Buluta Yükleniyor...</h3>
             <div id="percentText" style="font-size:20px; font-weight:bold; color:#FE2C55;">0%</div>
             <div class="progress-bar-bg">
                 <div class="progress-bar-fill" id="progressBarFill"></div>
@@ -224,23 +233,24 @@ app.get('/upload-story-page', (req, res) => {
 });
 
 app.post('/upload-story', upload.single('media'), async (req, res) => {
-    if (!req.session.user || !isConnected) return res.status(500).send("Sunucu baglantisi yok");
+    if (!req.session.user || !isConnected) return res.status(500).send("Sunucu bağlantısı yok");
     try {
-        if (!req.file) return res.status(400).send("Dosya bulunamadi");
-        const mediaUrl = `/uploads/${req.file.filename}`;
-        const isVideo = req.file.mimetype.startsWith('video');
+        if (!req.file) return res.status(400).send("Dosya bulunamadı");
         
+        const isVideo = req.file.mimetype.startsWith('video');
+        const cloudRes = await uploadToCloudinary(req.file.buffer, isVideo ? 'video' : 'image');
+
         await storiesCol.insertOne({
             user_id: new ObjectId(req.session.user._id),
             username: req.session.user.username,
-            mediaUrl: mediaUrl,
+            mediaUrl: cloudRes.secure_url,
             mediaType: isVideo ? 'video' : 'image',
             createdAt: new Date()
         });
         res.status(200).send("OK");
     } catch (err) {
         console.error("Hikaye yükleme hatası:", err);
-        res.status(500).send(err.message || "Yukleme hatasi");
+        res.status(500).send(err.message || "Buluta yükleme hatası");
     }
 });
 
@@ -368,7 +378,7 @@ app.get('/upload-page', (req, res) => {
         <title>Video Düzenle ve Paylaş</title>
         <style>
             ${globalStyles}
-            .editor-container { position: relative; width: 100vw; height: calc(100vh - 55px); background: #111; display: flex; flex-direction: column; justify-content: space-between; align-items: center; box-sizing: border-box; padding: 20px; }
+            .editor-container { position: relative; width: 100vw; height: calc(100vh - 60px); background: #111; display: flex; flex-direction: column; justify-content: space-between; align-items: center; box-sizing: border-box; padding: 20px; }
             .top-bar { width: 100%; display: flex; justify-content: center; }
             .sound-badge { background: rgba(0,0,0,0.6); border: 1px solid #444; padding: 8px 16px; border-radius: 20px; font-size: 13px; display: flex; align-items: center; gap: 8px; }
             .form-box { width: 100%; background: rgba(20,20,20,0.9); padding: 15px; border-radius: 12px; display: flex; flex-direction: column; gap: 10px; }
@@ -378,7 +388,7 @@ app.get('/upload-page', (req, res) => {
     </head>
     <body>
         <div class="progress-overlay" id="progressOverlay">
-            <h3>Video Yükleniyor...</h3>
+            <h3>Video Buluta Yükleniyor...</h3>
             <div id="percentText" style="font-size:24px; font-weight:bold; color:#FE2C55;">0%</div>
             <div class="progress-bar-bg">
                 <div class="progress-bar-fill" id="progressBarFill"></div>
@@ -440,17 +450,18 @@ app.get('/upload-page', (req, res) => {
 });
 
 app.post('/upload', upload.single('video'), async (req, res) => {
-    if (!req.session.user || !isConnected) return res.status(500).send("Sunucu baglantisi yok");
+    if (!req.session.user || !isConnected) return res.status(500).send("Sunucu bağlantısı yok");
     try {
-        if (!req.file) return res.status(400).send("Video bulunamadi");
-        const videoUrl = `/uploads/${req.file.filename}`;
+        if (!req.file) return res.status(400).send("Video bulunamadı");
+        
+        const cloudRes = await uploadToCloudinary(req.file.buffer, 'video');
         const { caption, song } = req.body;
 
         await videosCol.insertOne({
             user_id: new ObjectId(req.session.user._id),
             username: req.session.user.username,
             caption: caption || '',
-            filename: videoUrl,
+            filename: cloudRes.secure_url,
             song: song || 'Orijinal Ses',
             likes: 0,
             favorites: 0,
@@ -458,8 +469,8 @@ app.post('/upload', upload.single('video'), async (req, res) => {
         });
         res.status(200).send("OK");
     } catch (err) {
-        console.error("Video yükleme detaylı hata:", err);
-        res.status(500).send(err.message || "Video yukleme sunucu hatasi");
+        console.error("Video yükleme hatası:", err);
+        res.status(500).send(err.message || "Buluta yükleme sunucu hatası");
     }
 });
 
@@ -524,12 +535,14 @@ app.post('/update-profile', upload.fields([{ name: 'avatar', maxCount: 1 }, { na
 
         let avatarFile = req.session.user.avatar || '';
         if (req.files && req.files['avatar']) {
-            avatarFile = `/uploads/${req.files['avatar'][0].filename}`;
+            const avatarRes = await uploadToCloudinary(req.files['avatar'][0].buffer, 'image');
+            avatarFile = avatarRes.secure_url;
         }
 
         let bannerFile = req.session.user.banner || '';
         if (req.files && req.files['banner']) {
-            bannerFile = `/uploads/${req.files['banner'][0].filename}`;
+            const bannerRes = await uploadToCloudinary(req.files['banner'][0].buffer, 'image');
+            bannerFile = bannerRes.secure_url;
         }
 
         const newNickname = nickname || req.session.user.nickname;
@@ -548,6 +561,7 @@ app.post('/update-profile', upload.fields([{ name: 'avatar', maxCount: 1 }, { na
     }
 });
 
+// Profil Sayfası
 app.get('/profile/:username', async (req, res) => {
     if (!req.session.user || !isConnected) return res.redirect('/');
     const targetUser = await usersCol.findOne({ username: req.params.username });
@@ -589,6 +603,7 @@ app.get('/profile/:username', async (req, res) => {
         <title>${targetUser.nickname} (@${targetUser.username})</title>
         <style>
             ${globalStyles}
+            .profile-page-wrapper { padding-bottom: 80px; min-height: 100vh; }
             .banner { width: 100%; height: 140px; background-image: ${bannerBg}; background-size: cover; background-position: center; position: relative; }
             .profile-header { text-align: center; padding: 0 15px 20px 15px; background: #000; position: relative; }
             .avatar { width: 85px; height: 85px; background: #FE2C55; border: 4px solid #000; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 36px; margin: -45px auto 10px auto; font-weight: bold; position: relative; z-index: 2; overflow: hidden; }
@@ -597,41 +612,43 @@ app.get('/profile/:username', async (req, res) => {
             .bio-box { color: #ccc; font-size: 13px; margin-top: 10px; }
             .action-buttons { display: flex; justify-content: center; gap: 10px; margin-top: 15px; }
             .btn-profile { padding: 8px 25px; border-radius: 4px; font-weight: bold; font-size: 14px; cursor: pointer; border: none; }
-            .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; }
+            .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; margin-bottom: 20px; }
             .v-thumb { background: #1a1a1a; aspect-ratio: 9/16; position: relative; overflow: hidden; }
             .v-thumb video { width: 100%; height: 100%; object-fit: cover; }
             .thumb-stats { position: absolute; bottom: 5px; left: 5px; font-size: 11px; font-weight: bold; text-shadow: 0 1px 2px #000; }
-            .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 2000; justify-content: center; align-items: center; }
+            .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 20000; justify-content: center; align-items: center; }
             .modal-content { background: #1f1f1f; padding: 20px; border-radius: 12px; width: 300px; text-align: center; }
             .modal-content input { width: 100%; padding: 10px; margin: 8px 0; background: #2f2f2f; border: none; color: #fff; border-radius: 6px; box-sizing: border-box; }
         </style>
     </head>
     <body>
-        <div class="banner"></div>
-        <div class="profile-header">
-            <div class="avatar">${avatarHTML}</div>
-            <h2 style="margin: 5px 0;">${targetUser.nickname}</h2>
-            <p style="color: #888; margin: 0; font-size: 13px;">@${targetUser.username}</p>
-            
-            <div class="stats">
-                <div><span>${followingCount}</span>Takip edilen</div>
-                <div><span>${followersCount}</span>Takipçi</div>
-                <div><span>${totalLikes}</span>Beğeni</div>
+        <div class="profile-page-wrapper">
+            <div class="banner"></div>
+            <div class="profile-header">
+                <div class="avatar">${avatarHTML}</div>
+                <h2 style="margin: 5px 0;">${targetUser.nickname}</h2>
+                <p style="color: #888; margin: 0; font-size: 13px;">@${targetUser.username}</p>
+                
+                <div class="stats">
+                    <div><span>${followingCount}</span>Takip edilen</div>
+                    <div><span>${followersCount}</span>Takipçi</div>
+                    <div><span>${totalLikes}</span>Beğeni</div>
+                </div>
+
+                <div class="bio-box">${targetUser.bio}</div>
+
+                <div class="action-buttons">
+                    ${isMe ? `
+                        <button class="btn-profile" style="background: #2f2f2f; color: #fff;" onclick="document.getElementById('editModal').style.display='flex'">Profili Düzenle</button>
+                    ` : `
+                        <a href="/follow/${targetUser._id}" class="btn-profile" style="background: ${isFollowing ? '#333' : '#FE2C55'}; color: #fff; text-decoration:none; line-height:30px;">${isFollowing ? 'Takiptesin' : 'Takip Et'}</a>
+                    `}
+                </div>
             </div>
 
-            <div class="bio-box">${targetUser.bio}</div>
-
-            <div class="action-buttons">
-                ${isMe ? `
-                    <button class="btn-profile" style="background: #2f2f2f; color: #fff;" onclick="document.getElementById('editModal').style.display='flex'">Profili Düzenle</button>
-                ` : `
-                    <a href="/follow/${targetUser._id}" class="btn-profile" style="background: ${isFollowing ? '#333' : '#FE2C55'}; color: #fff; text-decoration:none; line-height:30px;">${isFollowing ? 'Takiptesin' : 'Takip Et'}</a>
-                `}
+            <div class="grid">
+                ${videoHTML || '<p style="grid-column: span 3; text-align: center; color: #666; padding: 40px;">Henüz video yok.</p>'}
             </div>
-        </div>
-
-        <div class="grid">
-            ${videoHTML || '<p style="grid-column: span 3; text-align: center; color: #666; padding: 40px;">Henüz video yok.</p>'}
         </div>
 
         ${isMe ? `
@@ -651,7 +668,7 @@ app.get('/profile/:username', async (req, res) => {
                     <button type="button" style="background:#333; color:#fff; padding:10px; border:none; border-radius:6px; width:100%; font-weight:bold; cursor:pointer; margin-top:5px;" onclick="document.getElementById('editModal').style.display='none'">İptal</button>
                 </form>
             </div>
-        ` : ''}
+        </div>` : ''}
 
         ${getNavbar('profile', req.session.user.username)}
     </body>
@@ -826,9 +843,10 @@ app.get('/', async (req, res) => {
         });
 
         feedHTML += `
-        <div class="video-container">
+        <div class="video-container" data-id="${v._id}">
             <video id="vid-${v._id}" src="${v.filename}" loop playsinline></video>
             <div class="sound-toggle" onclick="toggleSound('vid-${v._id}', this)">🔊 Sesi Aç</div>
+            <div class="fullscreen-btn" onclick="toggleFullscreen('vid-${v._id}')">⛶ Tam Ekran</div>
             <div class="video-info">
                 <a href="/profile/${v.username}" style="font-weight: bold; font-size: 15px; text-shadow: 0 1px 2px #000;">@${v.username}</a>
                 <p style="margin: 5px 0; font-size: 14px; text-shadow: 0 1px 2px #000;">${v.caption}</p>
@@ -882,6 +900,8 @@ app.get('/', async (req, res) => {
             .action-btn { background: rgba(0,0,0,0.4); width: 42px; height: 42px; border-radius: 50%; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 16px; color: #fff; text-decoration: none; }
             .action-btn span { font-size: 10px; margin-top: 1px; }
             .sound-toggle { position: absolute; top: 15px; right: 15px; background: rgba(0,0,0,0.6); color: #fff; padding: 6px 12px; border-radius: 15px; font-size: 12px; z-index: 15; cursor: pointer; border: 1px solid rgba(255,255,255,0.3); }
+            .fullscreen-btn { position: absolute; top: 15px; right: 120px; background: rgba(0,0,0,0.6); color: #fff; padding: 6px 12px; border-radius: 15px; font-size: 12px; z-index: 15; cursor: pointer; border: 1px solid rgba(255,255,255,0.3); }
+            
             .comment-modal { display: none; position: fixed; bottom: 0; left: 0; width: 100%; height: 60vh; background: #1a1a1a; z-index: 3000; border-top-left-radius: 16px; border-top-right-radius: 16px; box-sizing: border-box; padding: 15px; flex-direction: column; justify-content: space-between; }
             .comment-box { display: flex; flex-direction: column; height: 100%; }
             .comment-list { flex-grow: 1; overflow-y: scroll; margin: 10px 0; }
@@ -893,17 +913,33 @@ app.get('/', async (req, res) => {
             .story-viewer-close { position: absolute; top: 20px; right: 20px; font-size: 24px; color: #fff; cursor: pointer; z-index: 9001; }
         </style>
         <script>
+            let globalMutedState = true; // Varsayılan olarak tüm videolar sessiz başlar
+
             function toggleSound(id, btn) {
                 const vid = document.getElementById(id);
                 if (vid.muted) {
                     vid.muted = false;
                     vid.play();
+                    globalMutedState = false;
                     btn.innerText = "🔇 Sesi Kapat";
                 } else {
                     vid.muted = true;
+                    globalMutedState = true;
                     btn.innerText = "🔊 Sesi Aç";
                 }
             }
+
+            function toggleFullscreen(id) {
+                const vid = document.getElementById(id);
+                if (vid.requestFullscreen) {
+                    vid.requestFullscreen();
+                } else if (vid.webkitRequestFullscreen) {
+                    vid.webkitRequestFullscreen();
+                } else if (vid.msRequestFullscreen) {
+                    vid.msRequestFullscreen();
+                }
+            }
+
             function openComments(id) { document.getElementById('commentModal-' + id).style.display = 'flex'; }
             function closeComments(id) { document.getElementById('commentModal-' + id).style.display = 'none'; }
 
@@ -921,6 +957,27 @@ app.get('/', async (req, res) => {
                 document.getElementById('storyViewer').style.display = 'none';
                 document.getElementById('storyViewerContent').innerHTML = '';
             }
+
+            // Kaydırma sırasında otomatik ses aktarımı ve video oynatma
+            document.addEventListener("DOMContentLoaded", () => {
+                const containers = document.querySelectorAll('.video-container');
+                const observer = new IntersectionObserver((entries) => {
+                    entries.forEach(entry => {
+                        const vid = entry.target.querySelector('video');
+                        const btn = entry.target.querySelector('.sound-toggle');
+                        if (entry.isIntersecting) {
+                            vid.muted = globalMutedState;
+                            vid.play().catch(e => console.log(e));
+                            btn.innerText = globalMutedState ? "🔊 Sesi Aç" : "🔇 Sesi Kapat";
+                        } else {
+                            vid.pause();
+                            vid.currentTime = 0;
+                        }
+                    });
+                }, { threshold: 0.6 });
+
+                containers.forEach(c => observer.observe(c));
+            });
         </script>
     </head>
     <body>
