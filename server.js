@@ -375,7 +375,6 @@ app.get('/search', async (req, res) => {
     </html>`);
 });
 
-// GELEN KUTUSU & HİKAYELER
 app.get('/inbox', async (req, res) => {
     if (!req.session.user || !isConnected) return res.redirect('/');
     const users = await usersCol.find({ _id: { $ne: new ObjectId(req.session.user._id) } }).toArray();
@@ -464,7 +463,6 @@ app.get('/inbox', async (req, res) => {
     </html>`);
 });
 
-// SOHBET (DM) EKRANI - GÖNDERDİĞİN GÖRSELLE BİREBİR TASARLANDI
 app.get('/chat/:targetUser', async (req, res) => {
     if (!req.session.user || !isConnected) return res.redirect('/');
     const target = await usersCol.findOne({ username: req.params.targetUser });
@@ -546,7 +544,7 @@ app.post('/send-msg/:targetUser', async (req, res) => {
     res.redirect('back');
 });
 
-// ANA SAYFA - BİREBİR TIKTOK AKIŞ VE BÜYÜK YORUM PENCERESİ
+// ANA SAYFA - VİDEO EKRANI TAM KAPLAMASI (object-fit: cover) SAĞLANDI
 app.get('/', async (req, res) => {
     if (!req.session.user) {
         return res.send(`
@@ -635,9 +633,9 @@ app.get('/', async (req, res) => {
             <div class="sound-toggle" onclick="toggleSound('vid-${v._id}', this)">🔊 Sesi Aç</div>
             
             <div class="video-info">
-                <a href="/profile/${v.username}" style="font-weight: bold; font-size: 15px;">@${v.username}</a>
-                <p style="margin: 5px 0; font-size: 14px;">${v.caption}</p>
-                <p style="margin: 0; font-size: 12px; color: #ddd;">🎵 ${v.song}</p>
+                <a href="/profile/${v.username}" style="font-weight: bold; font-size: 15px; text-shadow: 0 1px 2px #000;">@${v.username}</a>
+                <p style="margin: 5px 0; font-size: 14px; text-shadow: 0 1px 2px #000;">${v.caption}</p>
+                <p style="margin: 0; font-size: 12px; color: #ddd; text-shadow: 0 1px 2px #000;">🎵 ${v.song}</p>
             </div>
             
             <div class="sidebar-actions">
@@ -679,14 +677,14 @@ app.get('/', async (req, res) => {
             .feed-scroll { height: 100vh; overflow-y: scroll; scroll-snap-type: y mandatory; -webkit-overflow-scrolling: touch; }
             .video-container { width: 100vw; height: 100vh; scroll-snap-align: start; position: relative; display: flex; justify-content: center; align-items: center; background: #000; }
             
-            .feed-video { width: 100%; height: 100%; object-fit: contain; position: absolute; top: 0; left: 0; }
+            /* object-fit: cover ile videolar ekranı tam doldurur */
+            .feed-video { width: 100%; height: 100%; object-fit: cover; position: absolute; top: 0; left: 0; }
             
-            .video-info { position: absolute; bottom: 80px; left: 15px; z-index: 10; max-width: 70%; text-shadow: 0 1px 2px #000; }
+            .video-info { position: absolute; bottom: 80px; left: 15px; z-index: 10; max-width: 70%; }
             .sidebar-actions { position: absolute; bottom: 90px; right: 15px; z-index: 10; display: flex; flex-direction: column; gap: 14px; align-items: center; }
             .action-btn { background: rgba(0,0,0,0.4); width: 42px; height: 42px; border-radius: 50%; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 16px; color: #fff; }
             .sound-toggle { position: absolute; top: 65px; right: 15px; background: rgba(0,0,0,0.6); color: #fff; padding: 6px 12px; border-radius: 15px; font-size: 12px; z-index: 15; cursor: pointer; border: 1px solid rgba(255,255,255,0.3); }
             
-            /* Genişletilmiş Yorum Paneli Stilleri */
             .comment-modal { display: none; position: fixed; bottom: 0; left: 0; width: 100%; height: 75vh; background: #fff; color: #000; z-index: 30000; border-top-left-radius: 16px; border-top-right-radius: 16px; flex-direction: column; box-shadow: 0 -5px 25px rgba(0,0,0,0.3); }
             .comment-item { display: flex; gap: 12px; margin-bottom: 16px; align-items: flex-start; }
             .comment-avatar { width: 36px; height: 36px; background: #eee; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0; }
