@@ -81,10 +81,6 @@ const globalStyles = `
     .tiktok-nav a.active { color: #fff; }
     .plus-btn { position: relative; top: -5px; }
     .plus-icon { width: 40px; height: 26px; background: linear-gradient(90deg, #25F4EE 0%, #FE2C55 100%); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: #000; font-size: 22px; font-weight: bold; }
-    
-    .progress-overlay { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.85); z-index: 999999; flex-direction: column; justify-content: center; align-items: center; text-align: center; }
-    .progress-bar-bg { width: 80%; max-width: 300px; height: 12px; background: #333; border-radius: 6px; overflow: hidden; margin-top: 15px; }
-    .progress-bar-fill { width: 0%; height: 100%; background: #FE2C55; transition: width 0.2s ease; }
 `;
 
 app.post('/register', async (req, res) => {
@@ -143,8 +139,8 @@ app.get('/upload-story-page', (req, res) => {
 app.post('/upload-story', upload.single('media'), async (req, res) => {
     if (!req.session.user || !isConnected) return res.status(500).send("Hata");
     try {
-        if (!req.file) return res.status(400).send("Dosya yok");
-        const isVideo = req.file.mimetype.startsWith('video');
+        if (!req.file) return res.send("<script>alert('Dosya seçin!'); window.location='/upload-story-page';</script>");
+        const isVideo = req.file.mimetype ? req.file.mimetype.startsWith('video') : false;
         await storiesCol.insertOne({ user_id: new ObjectId(req.session.user._id), username: req.session.user.username, mediaUrl: `/uploads/${req.file.filename}`, mediaType: isVideo ? 'video' : 'image', createdAt: new Date() });
         res.redirect('/inbox');
     } catch (err) { res.status(500).send("Hata: " + err.message); }
@@ -172,7 +168,7 @@ app.get('/upload-page', (req, res) => {
 app.post('/upload', upload.single('video'), async (req, res) => {
     if (!req.session.user || !isConnected) return res.status(500).send("Hata");
     try {
-        if (!req.file) return res.status(400).send("Video yok");
+        if (!req.file) return res.send("<script>alert('Video seçin!'); window.location='/upload-page';</script>");
         await videosCol.insertOne({ user_id: new ObjectId(req.session.user._id), username: req.session.user.username, caption: req.body.caption || '', filename: `/uploads/${req.file.filename}`, song: req.body.song || 'Orijinal Ses', likes: 0, favorites: 0, shares: 0, createdAt: new Date() });
         res.redirect('/');
     } catch (err) { res.status(500).send("Hata: " + err.message); }
@@ -379,7 +375,7 @@ app.get('/search', async (req, res) => {
     </html>`);
 });
 
-// GELEN KUTUSU & HİKAYELER (Görseldeki Gibi Tasarlandı)
+// GELEN KUTUSU & HİKAYELER
 app.get('/inbox', async (req, res) => {
     if (!req.session.user || !isConnected) return res.redirect('/');
     const users = await usersCol.find({ _id: { $ne: new ObjectId(req.session.user._id) } }).toArray();
@@ -407,7 +403,6 @@ app.get('/inbox', async (req, res) => {
             .story-circle-ring { width: 58px; height: 58px; border-radius: 50%; background: linear-gradient(135deg, #25F4EE, #FE2C55); padding: 2px; display: flex; align-items: center; justify-content: center; }
             .story-circle-ring.plus-ring { background: #222; font-size: 26px; color: #fff; border: 1px solid #444; }
             
-            /* GÖRSELDEKİ HİKAYE MODAL TASARIMI */
             .story-viewer-modal { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: #000; z-index: 999999; flex-direction: column; justify-content: space-between; }
             .story-top-bar { position: absolute; top: 15px; left: 0; width: 100%; display: flex; justify-content: space-between; align-items: center; padding: 0 15px; z-index: 10; box-sizing: border-box; }
             .story-user-info { display: flex; align-items: center; gap: 10px; font-size: 14px; font-weight: bold; color: #fff; text-shadow: 0 1px 2px #000; }
@@ -469,6 +464,7 @@ app.get('/inbox', async (req, res) => {
     </html>`);
 });
 
+// SOHBET (DM) EKRANI - GÖNDERDİĞİN GÖRSELLE BİREBİR TASARLANDI
 app.get('/chat/:targetUser', async (req, res) => {
     if (!req.session.user || !isConnected) return res.redirect('/');
     const target = await usersCol.findOne({ username: req.params.targetUser });
@@ -480,24 +476,66 @@ app.get('/chat/:targetUser', async (req, res) => {
     let chatHTML = '';
     messages.forEach(m => {
         const isMe = m.sender === myUser;
-        chatHTML += `<div style="display:flex; justify-content:${isMe ? 'flex-end' : 'flex-start'}; margin-bottom:10px;"><div style="background:${isMe ? '#FE2C55' : '#262626'}; color:#fff; padding:10px 14px; border-radius:16px; font-size:14px;">${m.text}</div></div>`;
+        chatHTML += `
+        <div style="display:flex; justify-content:${isMe ? 'flex-end' : 'flex-start'}; margin-bottom:12px;">
+            <div style="max-width:75%; background:${isMe ? '#33ccff' : '#f1f1f2'}; color:${isMe ? '#000' : '#000'}; padding:10px 16px; border-radius:18px; font-size:14px; line-height:1.4;">
+                ${m.text}
+            </div>
+        </div>`;
     });
 
     res.send(`
     <!DOCTYPE html>
     <html lang="tr">
-    <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Sohbet - @${target.username}</title>
-        <style>${globalStyles}</style>
+    <head>
+        <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Sohbet - @${target.username}</title>
+        <style>
+            ${globalStyles}
+            body { background: #fff; color: #000; }
+            .chat-header { position: fixed; top: 0; left: 0; width: 100%; height: 60px; background: #fff; display: flex; align-items: center; justify-content: space-between; padding: 0 15px; border-bottom: 1px solid #eee; z-index: 100; }
+            .chat-header-left { display: flex; align-items: center; gap: 12px; }
+            .chat-header-right { display: flex; align-items: center; gap: 20px; font-size: 20px; color: #000; }
+            .chat-avatar { width: 36px; height: 36px; background: #FE2C55; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; color: #fff; font-size: 15px; overflow: hidden; }
+            .chat-body { padding: 75px 15px 90px 15px; min-height: 100vh; box-sizing: border-box; display: flex; flex-direction: column; justify-content: flex-end; }
+            .chat-footer { position: fixed; bottom: 0; left: 0; width: 100%; background: #fff; padding: 10px 15px; border-top: 1px solid #eee; display: flex; align-items: center; gap: 12px; z-index: 100; }
+            .chat-input-box { flex-grow: 1; background: #f1f1f2; border-radius: 24px; padding: 10px 16px; display: flex; align-items: center; }
+            .chat-input-box input { width: 100%; background: transparent; border: none; outline: none; font-size: 14px; color: #000; }
+            .chat-footer-icons { display: flex; align-items: center; gap: 15px; font-size: 22px; cursor: pointer; }
+        </style>
     </head>
-    <body style="padding-top:60px; padding-bottom:70px;">
-        <div style="position:fixed; top:0; left:0; width:100%; height:50px; background:#121212; display:flex; align-items:center; padding:0 15px; gap:15px; border-bottom:1px solid #222; z-index:100;">
-            <a href="/inbox" style="font-size:20px;">←</a><b>${target.nickname} (@${target.username})</b>
+    <body>
+        <div class="chat-header">
+            <div class="chat-header-left">
+                <a href="/inbox" style="font-size:24px; font-weight:bold;">‹</a>
+                <div class="chat-avatar">${target.avatar ? `<img src="${target.avatar}" style="width:100%; height:100%; object-fit:cover;">` : target.nickname.charAt(0).toUpperCase()}</div>
+                <div>
+                    <div style="font-weight:bold; font-size:15px; color:#000;">${target.nickname}</div>
+                    <div style="font-size:11px; color:#888;">@${target.username}</div>
+                </div>
+            </div>
+            <div class="chat-header-right">
+                <span>📞</span>
+                <span>•••</span>
+            </div>
         </div>
-        <div style="padding:15px;">${chatHTML || '<p style="text-align:center; color:#555;">Henüz mesaj yok.</p>'}</div>
-        <form action="/send-msg/${target.username}" method="POST" style="position:fixed; bottom:0; left:0; width:100%; padding:10px; background:#121212; display:flex; gap:10px;">
-            <input type="text" name="text" placeholder="Mesaj yaz..." required style="flex-grow:1; background:#222; border:none; color:#fff; padding:10px; border-radius:20px; outline:none;">
-            <button type="submit" style="background:#FE2C55; color:#fff; border:none; padding:0 15px; border-radius:20px; font-weight:bold;">Gönder</button>
+
+        <div class="chat-body" id="chatBox">
+            ${chatHTML || '<p style="text-align:center; color:#888;">Henüz mesaj yok. İlk mesajı sen gönder!</p>'}
+        </div>
+
+        <form action="/send-msg/${target.username}" method="POST" class="chat-footer" autocomplete="off">
+            <span style="font-size:24px; cursor:pointer;">📷</span>
+            <div class="chat-input-box">
+                <input type="text" name="text" placeholder="Mesaj..." required>
+            </div>
+            <div class="chat-footer-icons">
+                <span>🖼️</span>
+                <span>😊</span>
+                <span>🎙️</span>
+            </div>
         </form>
+        <script>window.scrollTo(0, document.body.scrollHeight);</script>
     </body>
     </html>`);
 });
@@ -508,7 +546,7 @@ app.post('/send-msg/:targetUser', async (req, res) => {
     res.redirect('back');
 });
 
-// ANA SAYFA - ESKİ TEMİZ BEYAZ GİRİŞ/KAYIT VE YEREL TAM EKRAN (FULLSCREEN API)
+// ANA SAYFA - BİREBİR TIKTOK AKIŞ VE BÜYÜK YORUM PENCERESİ
 app.get('/', async (req, res) => {
     if (!req.session.user) {
         return res.send(`
@@ -595,7 +633,6 @@ app.get('/', async (req, res) => {
         <div class="video-container" id="container-${v._id}">
             <video id="vid-${v._id}" src="${v.filename}" loop playsinline class="feed-video"></video>
             <div class="sound-toggle" onclick="toggleSound('vid-${v._id}', this)">🔊 Sesi Aç</div>
-            <div class="fullscreen-btn" onclick="toggleNativeFullscreen('vid-${v._id}')">⛶ Tam Ekran</div>
             
             <div class="video-info">
                 <a href="/profile/${v.username}" style="font-weight: bold; font-size: 15px;">@${v.username}</a>
@@ -610,16 +647,18 @@ app.get('/', async (req, res) => {
                 <a href="/share/${v._id}" onclick="alert('Kopyalandı!');" class="action-btn">↗️<span>${v.shares}</span></a>
             </div>
 
+            <!-- BÜYÜTÜLMÜŞ VE RAHAT KULLANILABİLİR YORUM PANELİ -->
             <div id="commentModal-${v._id}" class="comment-modal">
-                <div style="padding:10px; border-bottom:1px solid #eee; display:flex; justify-content:space-between;">
-                    <b>${comments.length} Yorum</b><span onclick="closeComments('${v._id}')" style="cursor:pointer;">✕</span>
+                <div style="padding:15px; border-bottom:1px solid #eee; display:flex; justify-content:space-between; align-items:center; font-weight:bold; font-size:15px;">
+                    <span>${comments.length} yorum</span>
+                    <span onclick="closeComments('${v._id}')" style="cursor:pointer; font-size:20px; padding:0 5px;">✕</span>
                 </div>
-                <div style="flex-grow:1; overflow-y:scroll; padding:10px;">${commentList || '<p style="color:#888;">Yorum yok.</p>'}</div>
-                <form action="/comment/${v._id}" method="POST" enctype="multipart/form-data" style="padding:10px; border-top:1px solid #eee; display:flex; gap:8px;">
-                    <input type="text" name="comment" placeholder="Yorum ekle..." style="flex-grow:1; padding:8px; border:1px solid #ddd; border-radius:15px; outline:none;">
+                <div style="flex-grow:1; overflow-y:scroll; padding:15px;">${commentList || '<p style="text-align:center; color:#888; margin-top:40px;">Henüz yorum yok. İlk yorumu sen yap!</p>'}</div>
+                <form action="/comment/${v._id}" method="POST" enctype="multipart/form-data" style="padding:12px 15px; border-top:1px solid #eee; display:flex; gap:10px; background:#fff; align-items:center;">
+                    <input type="text" name="comment" placeholder="Yorum ekleyin..." style="flex-grow:1; padding:12px 16px; background:#f1f1f2; border:none; border-radius:20px; outline:none; font-size:14px;" autocomplete="off" required>
                     <input type="file" name="image" accept="image/*" style="display:none;" id="img-${v._id}">
-                    <label for="img-${v._id}" style="cursor:pointer; font-size:18px;">🖼️</label>
-                    <button type="submit" style="background:#FE2C55; color:#fff; border:none; padding:8px 12px; border-radius:15px;">Gönder</button>
+                    <label for="img-${v._id}" style="cursor:pointer; font-size:20px;">🖼️</label>
+                    <button type="submit" style="background:#FE2C55; color:#fff; border:none; padding:10px 18px; border-radius:20px; font-weight:bold; cursor:pointer;">Gönder</button>
                 </form>
             </div>
         </div>`;
@@ -646,14 +685,14 @@ app.get('/', async (req, res) => {
             .sidebar-actions { position: absolute; bottom: 90px; right: 15px; z-index: 10; display: flex; flex-direction: column; gap: 14px; align-items: center; }
             .action-btn { background: rgba(0,0,0,0.4); width: 42px; height: 42px; border-radius: 50%; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 16px; color: #fff; }
             .sound-toggle { position: absolute; top: 65px; right: 15px; background: rgba(0,0,0,0.6); color: #fff; padding: 6px 12px; border-radius: 15px; font-size: 12px; z-index: 15; cursor: pointer; border: 1px solid rgba(255,255,255,0.3); }
-            .fullscreen-btn { position: absolute; top: 65px; right: 120px; background: rgba(0,0,0,0.6); color: #fff; padding: 6px 12px; border-radius: 15px; font-size: 12px; z-index: 15; cursor: pointer; border: 1px solid rgba(255,255,255,0.3); }
             
-            .comment-modal { display: none; position: fixed; bottom: 0; left: 0; width: 100%; height: 70vh; background: #fff; color: #000; z-index: 30000; border-top-left-radius: 12px; border-top-right-radius: 12px; flex-direction: column; }
-            .comment-item { display: flex; gap: 10px; margin-bottom: 10px; }
-            .comment-avatar { width: 30px; height: 30px; background: #eee; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
+            /* Genişletilmiş Yorum Paneli Stilleri */
+            .comment-modal { display: none; position: fixed; bottom: 0; left: 0; width: 100%; height: 75vh; background: #fff; color: #000; z-index: 30000; border-top-left-radius: 16px; border-top-right-radius: 16px; flex-direction: column; box-shadow: 0 -5px 25px rgba(0,0,0,0.3); }
+            .comment-item { display: flex; gap: 12px; margin-bottom: 16px; align-items: flex-start; }
+            .comment-avatar { width: 36px; height: 36px; background: #eee; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0; }
             .comment-author { font-size: 12px; font-weight: bold; color: #666; }
-            .comment-text { font-size: 13px; color: #111; }
-            .comment-sticker { max-width: 100px; border-radius: 6px; margin-top: 4px; }
+            .comment-text { font-size: 14px; color: #111; margin-top: 3px; }
+            .comment-sticker { max-width: 140px; border-radius: 8px; margin-top: 6px; }
         </style>
         <script>
             let globalMutedState = true;
@@ -662,17 +701,6 @@ app.get('/', async (req, res) => {
                 const vid = document.getElementById(id);
                 if (vid.muted) { vid.muted = false; vid.play(); globalMutedState = false; btn.innerText = "🔇 Sesi Kapat"; } 
                 else { vid.muted = true; globalMutedState = true; btn.innerText = "🔊 Sesi Aç"; }
-            }
-
-            function toggleNativeFullscreen(videoId) {
-                const vid = document.getElementById(videoId);
-                if (vid.requestFullscreen) {
-                    vid.requestFullscreen();
-                } else if (vid.webkitRequestFullscreen) {
-                    vid.webkitRequestFullscreen();
-                } else if (vid.msRequestFullscreen) {
-                    vid.msRequestFullscreen();
-                }
             }
 
             function openComments(id) { document.getElementById('commentModal-' + id).style.display = 'flex'; }
