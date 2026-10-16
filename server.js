@@ -4,18 +4,13 @@ const bcrypt = require('bcrypt');
 const bodyParser = require('body-parser');
 const session = require('express-session');
 const multer = require('multer');
-const cloudinary = require('cloudinary').v2;
+const fs = require('fs');
+const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 const MONGO_URL = process.env.MONGO_URL || "mongodb+srv://cinarsucu04_db_user:46vjLI7sNK7djBeE@cluster0.utveet0.mongodb.net/?retryWrites=true&w=majority";
-
-cloudinary.config({
-    cloud_name: process.env.CLOUDINARY_CLOUD_NAME || 'lcnq6io8',
-    api_key: process.env.CLOUDINARY_API_KEY || '65673898511923',
-    api_secret: process.env.CLOUDINARY_API_SECRET
-});
 
 let db, usersCol, videosCol, commentsCol, followsCol, likesCol, storiesCol;
 let isConnected = false;
@@ -30,27 +25,33 @@ MongoClient.connect(MONGO_URL)
         likesCol = db.collection('likes');
         storiesCol = db.collection('stories');
         isConnected = true;
-        console.log("MongoDB bulut veritabanına başarıyla bağlandı!");
+        console.log("MongoDB veritabanı bağlantısı başarılı!");
     })
-    .catch(err => console.error("Veritabanı bağlantı hatası:", err));
+    .catch(err => console.error("Veritabanı hatası:", err));
 
-const upload = multer({ storage: multer.memoryStorage() });
+const uploadDir = path.join(__dirname, 'public', 'uploads');
+if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true });
+}
 
-const uploadToCloudinary = (fileBuffer, resourceType = 'auto') => {
-    return new Promise((resolve, reject) => {
-        const uploadStream = cloudinary.uploader.upload_stream(
-            { resource_type: resourceType },
-            (error, result) => {
-                if (error) reject(error);
-                else resolve(result);
-            }
-        );
-        uploadStream.end(fileBuffer);
-    });
-};
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        cb(null, uploadDir);
+    },
+    filename: (req, file, cb) => {
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        cb(null, uniqueSuffix + path.extname(file.originalname));
+    }
+});
+
+const upload = multer({ 
+    storage: storage,
+    limits: { fileSize: 100 * 1024 * 1024 }
+});
 
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
+app.use(express.static('public'));
 app.use(session({
     secret: 'tiktok-cloud-key',
     resave: false,
@@ -98,7 +99,7 @@ const globalStyles = `
 `;
 
 app.post('/register', async (req, res) => {
-    if (!isConnected) return res.send("<script>alert('Veritabanı henüz bağlanıyor, lütfen 5 saniye sonra tekrar deneyin!'); window.location='/';</script>");
+    if (!isConnected) return res.send("<script>alert('Veritabanı bağlanıyor, lütfen tekrar deneyin!'); window.location='/';</script>");
     const { username, nickname, password } = req.body;
     if (!username || !nickname || !password) return res.send("<script>alert('Tüm alanları doldurun!'); window.location='/';</script>");
 
@@ -118,12 +119,12 @@ app.post('/register', async (req, res) => {
         });
         res.send("<script>alert('Kayıt başarılı! Giriş yapabilirsiniz.'); window.location='/';</script>");
     } catch (err) {
-        res.send(`<script>alert('Kayıt Hatası: ${err.message.replace(/'/g, "\\'")}'); window.location='/';</script>`);
+        res.send(`<script>alert('Kayıt Hatası: ${err.message}'); window.location='/';</script>`);
     }
 });
 
 app.post('/login', async (req, res) => {
-    if (!isConnected) return res.send("<script>alert('Veritabanı henüz bağlanıyor, lütfen 5 saniye sonra tekrar deneyin!'); window.location='/';</script>");
+    if (!isConnected) return res.send("<script>alert('Veritabanı bağlanıyor...'); window.location='/';</script>");
     const { username, password } = req.body;
     try {
         const user = await usersCol.findOne({ username: username.toLowerCase().trim() });
@@ -137,7 +138,7 @@ app.post('/login', async (req, res) => {
             res.send("<script>alert('Hatalı şifre!'); window.location='/';</script>");
         }
     } catch (err) {
-        res.send(`<script>alert('Giriş Hatası: ${err.message.replace(/'/g, "\\'")}'); window.location='/';</script>`);
+        res.send(`<script>alert('Giriş Hatası: ${err.message}'); window.location='/';</script>`);
     }
 });
 
@@ -145,7 +146,7 @@ app.get('/logout', (req, res) => {
     req.session.destroy(() => res.redirect('/'));
 });
 
-// Hikaye Yükleme Sayfası
+// Hikaye Sayfası
 app.get('/upload-story-page', (req, res) => {
     if (!req.session.user) return res.redirect('/');
     res.send(`
@@ -208,7 +209,7 @@ app.get('/upload-story-page', (req, res) => {
                     if (xhr.status === 200) {
                         window.location.href = '/';
                     } else {
-                        alert('Yükleme hatası oluştu!');
+                        alert('Hikaye yükleme hatası: ' + xhr.responseText);
                         document.getElementById('progressOverlay').style.display = 'none';
                     }
                 };
@@ -223,23 +224,23 @@ app.get('/upload-story-page', (req, res) => {
 });
 
 app.post('/upload-story', upload.single('media'), async (req, res) => {
-    if (!req.session.user || !isConnected) return res.status(500).send("Baglanti yok");
+    if (!req.session.user || !isConnected) return res.status(500).send("Sunucu baglantisi yok");
     try {
-        if (!req.file) return res.status(400).send("Dosya yok");
+        if (!req.file) return res.status(400).send("Dosya bulunamadi");
+        const mediaUrl = `/uploads/${req.file.filename}`;
         const isVideo = req.file.mimetype.startsWith('video');
-        const cloudRes = await uploadToCloudinary(req.file.buffer, isVideo ? 'video' : 'image');
         
         await storiesCol.insertOne({
             user_id: new ObjectId(req.session.user._id),
             username: req.session.user.username,
-            mediaUrl: cloudRes.secure_url,
+            mediaUrl: mediaUrl,
             mediaType: isVideo ? 'video' : 'image',
             createdAt: new Date()
         });
         res.status(200).send("OK");
     } catch (err) {
         console.error("Hikaye yükleme hatası:", err);
-        res.status(500).send("Hata");
+        res.status(500).send(err.message || "Yukleme hatasi");
     }
 });
 
@@ -252,7 +253,7 @@ app.get('/delete-video/:id', async (req, res) => {
         if (video && video.user_id.toString() === req.session.user._id.toString()) {
             await videosCol.deleteOne({ _id: videoId });
             await commentsCol.deleteMany({ video_id: videoId });
-            await likesCol.deleteMany({ user_id: videoId });
+            await likesCol.deleteMany({ video_id: videoId });
         }
     } catch (err) {
         console.error("Video silme hatası:", err);
@@ -260,7 +261,7 @@ app.get('/delete-video/:id', async (req, res) => {
     res.redirect(`/profile/${req.session.user.username}`);
 });
 
-// Arama Sayfası
+// Arama
 app.get('/search', async (req, res) => {
     if (!req.session.user) return res.redirect('/');
     const query = req.query.q || '';
@@ -355,7 +356,7 @@ app.get('/search', async (req, res) => {
     `);
 });
 
-// Video Yükleme Sayfası (% Yüzde Barı İle)
+// Video Yükleme Sayfası
 app.get('/upload-page', (req, res) => {
     if (!req.session.user) return res.redirect('/');
     res.send(`
@@ -424,7 +425,7 @@ app.get('/upload-page', (req, res) => {
                     if (xhr.status === 200) {
                         window.location.href = '/';
                     } else {
-                        alert('Video yükleme hatası oluştu!');
+                        alert('Video yükleme hatası: ' + xhr.responseText);
                         document.getElementById('progressOverlay').style.display = 'none';
                     }
                 };
@@ -439,17 +440,17 @@ app.get('/upload-page', (req, res) => {
 });
 
 app.post('/upload', upload.single('video'), async (req, res) => {
-    if (!req.session.user || !isConnected) return res.status(500).send("Baglanti yok");
+    if (!req.session.user || !isConnected) return res.status(500).send("Sunucu baglantisi yok");
     try {
-        if (!req.file) return res.status(400).send("Video yok");
-        const cloudRes = await uploadToCloudinary(req.file.buffer, 'video');
+        if (!req.file) return res.status(400).send("Video bulunamadi");
+        const videoUrl = `/uploads/${req.file.filename}`;
         const { caption, song } = req.body;
 
         await videosCol.insertOne({
             user_id: new ObjectId(req.session.user._id),
             username: req.session.user.username,
             caption: caption || '',
-            filename: cloudRes.secure_url,
+            filename: videoUrl,
             song: song || 'Orijinal Ses',
             likes: 0,
             favorites: 0,
@@ -457,8 +458,8 @@ app.post('/upload', upload.single('video'), async (req, res) => {
         });
         res.status(200).send("OK");
     } catch (err) {
-        console.error("Video yükleme hatası:", err);
-        res.status(500).send("Hata");
+        console.error("Video yükleme detaylı hata:", err);
+        res.status(500).send(err.message || "Video yukleme sunucu hatasi");
     }
 });
 
@@ -523,14 +524,12 @@ app.post('/update-profile', upload.fields([{ name: 'avatar', maxCount: 1 }, { na
 
         let avatarFile = req.session.user.avatar || '';
         if (req.files && req.files['avatar']) {
-            const avatarRes = await uploadToCloudinary(req.files['avatar'][0].buffer, 'image');
-            avatarFile = avatarRes.secure_url;
+            avatarFile = `/uploads/${req.files['avatar'][0].filename}`;
         }
 
         let bannerFile = req.session.user.banner || '';
         if (req.files && req.files['banner']) {
-            const bannerRes = await uploadToCloudinary(req.files['banner'][0].buffer, 'image');
-            bannerFile = bannerRes.secure_url;
+            bannerFile = `/uploads/${req.files['banner'][0].filename}`;
         }
 
         const newNickname = nickname || req.session.user.nickname;
@@ -652,7 +651,7 @@ app.get('/profile/:username', async (req, res) => {
                     <button type="button" style="background:#333; color:#fff; padding:10px; border:none; border-radius:6px; width:100%; font-weight:bold; cursor:pointer; margin-top:5px;" onclick="document.getElementById('editModal').style.display='none'">İptal</button>
                 </form>
             </div>
-        </div>` : ''}
+        ` : ''}
 
         ${getNavbar('profile', req.session.user.username)}
     </body>
@@ -718,7 +717,7 @@ app.get('/inbox', (req, res) => {
     `);
 });
 
-// Ana Sayfa (Hikayeler, Takip Edilen / Sizin İçin Akışı)
+// Ana Sayfa
 app.get('/', async (req, res) => {
     if (!req.session.user) {
         return res.send(`
