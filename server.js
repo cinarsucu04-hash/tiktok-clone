@@ -48,16 +48,13 @@ app.use(bodyParser.json());
 app.use(express.static('public'));
 app.use(session({ secret: 'tiktok-cloud-key', resave: false, saveUninitialized: true }));
 
+// Alt menüden Keşfet/Ara tamamen kaldırıldı
 function getNavbar(activeTab, username) {
     return `
     <div class="tiktok-nav">
         <a href="/" class="${activeTab === 'home' ? 'active' : ''}">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L3 9v11h6v-6h6v6h6V9l-9-7z"/></svg>
             <span>Ana sayfa</span>
-        </a>
-        <a href="/search" class="${activeTab === 'search' ? 'active' : ''}">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
-            <span>Keşfet/Ara</span>
         </a>
         <a href="/upload-page" class="plus-btn">
             <div class="plus-icon">+</div>
@@ -233,6 +230,7 @@ app.post('/upload', upload.single('video'), async (req, res) => {
     } catch (err) { res.status(500).send("Hata: " + err.message); }
 });
 
+// YORUM VE FOTOĞRAF BİRLİKTE KAYDETME
 app.post('/comment/:id', upload.single('image'), async (req, res) => {
     if (!req.session.user || !isConnected) return res.redirect('/');
     try {
@@ -498,8 +496,6 @@ app.get('/search', async (req, res) => {
         <div style="background:#fff;">
             ${dynamicListHTML}
         </div>
-
-        ${getNavbar('search', req.session.user.username)}
     </body>
     </html>`);
 });
@@ -704,7 +700,7 @@ app.post('/send-msg/:targetUser', async (req, res) => {
     res.redirect('back');
 });
 
-// ANA SAYFA - SADE YORUM PENCERESİ (YAZI YOK, SADECE FOTOĞRAF, NICKNAME VE PROFİL FOTOĞRAFI)
+// ANA SAYFA - YUKARI TAŞINMIŞ VE KÜÇÜLTÜLMÜŞ YORUM PANELİ (YAZI + FOTOĞRAF DESTEKLİ)
 app.get('/', async (req, res) => {
     if (!req.session.user) {
         return res.send(`
@@ -782,6 +778,7 @@ app.get('/', async (req, res) => {
                 <div class="comment-avatar">${commenterAvatar}</div>
                 <div class="comment-content">
                     <div class="comment-author">${c.nickname || c.username}</div>
+                    ${c.comment ? `<div class="comment-text">${c.comment}</div>` : ''}
                     ${c.image ? `<img src="${c.image}" class="comment-sticker">` : ''}
                 </div>
             </div>`;
@@ -805,23 +802,20 @@ app.get('/', async (req, res) => {
                 <a href="/share/${v._id}" onclick="alert('Kopyalandı!');" class="action-btn">↗️<span>${v.shares}</span></a>
             </div>
 
-            <!-- ESKİ / SADE YORUM MODALI (SADECE FOTOĞRAF GÖNDERME VE NICKNAME) -->
+            <!-- YUKARI TAŞINMIŞ, KÜÇÜLTÜLMÜŞ VE YAZI+FOTOĞRAF DESTEKLİ YORUM MODALI -->
             <div id="commentModal-${v._id}" class="comment-modal">
                 <div class="comment-modal-header">
                     <span>${comments.length} yorum</span>
                     <span onclick="closeComments('${v._id}')" class="comment-close-btn">✕</span>
                 </div>
                 <div class="comment-scroll-area">
-                    ${commentList || '<div style="text-align:center; color:#888; margin-top:60px; font-size:14px;">Henüz yorum yok. İlk görseli sen paylaş!</div>'}
+                    ${commentList || '<div style="text-align:center; color:#888; margin-top:20px; font-size:14px;">Henüz yorum yok. İlk yorumu sen yap!</div>'}
                 </div>
                 <form action="/comment/${v._id}" method="POST" enctype="multipart/form-data" class="comment-input-form" autocomplete="off">
-                    <div class="comment-user-avatar">${req.session.user.avatar ? `<img src="${req.session.user.avatar}" style="width:100%; height:100%; border-radius:50%; object-fit:cover;">` : req.session.user.nickname.charAt(0).toUpperCase()}</div>
-                    <div style="flex-grow:1; display:flex; align-items:center; background:#f1f1f2; border-radius:20px; padding:8px 15px; gap:10px;">
-                        <input type="file" name="image" accept="image/*" required style="display:none;" id="img-${v._id}" onchange="this.form.submit()">
-                        <label for="img-${v._id}" style="cursor:pointer; font-size:15px; color:#666; display:flex; align-items:center; gap:6px;">
-                            <span>🖼️</span> <span>Fotoğraf seç ve gönder</span>
-                        </label>
-                    </div>
+                    <input type="text" name="comment" placeholder="Yorum ekleyin..." required style="flex-grow:1; padding:10px 14px; background:#f1f1f2; border:none; border-radius:20px; outline:none; font-size:14px; color:#000;">
+                    <input type="file" name="image" accept="image/*" style="display:none;" id="img-${v._id}">
+                    <label for="img-${v._id}" style="cursor:pointer; font-size:20px;">🖼️</label>
+                    <button type="submit" style="background:#FE2C55; color:#fff; border:none; padding:8px 14px; border-radius:20px; font-weight:bold; cursor:pointer; font-size:13px;">Gönder</button>
                 </form>
             </div>
         </div>`;
@@ -851,17 +845,18 @@ app.get('/', async (req, res) => {
             .action-btn { background: rgba(0,0,0,0.4); width: 42px; height: 42px; border-radius: 50%; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 16px; color: #fff; }
             .sound-toggle { position: absolute; top: 65px; right: 15px; background: rgba(0,0,0,0.6); color: #fff; padding: 6px 12px; border-radius: 15px; font-size: 12px; z-index: 15; cursor: pointer; border: 1px solid rgba(255,255,255,0.3); }
             
-            .comment-modal { display: none; position: fixed; bottom: 0; left: 0; width: 100%; height: 75vh; background: #ffffff; color: #000000; z-index: 30000; border-top-left-radius: 16px; border-top-right-radius: 16px; flex-direction: column; box-shadow: 0 -5px 25px rgba(0,0,0,0.3); }
-            .comment-modal-header { padding: 15px; border-bottom: 1px solid #f1f1f2; display: flex; justify-content: center; align-items: center; font-weight: bold; font-size: 15px; position: relative; flex-shrink: 0; }
-            .comment-close-btn { position: absolute; right: 15px; cursor: pointer; font-size: 20px; color: #000; }
-            .comment-scroll-area { flex-grow: 1; overflow-y: auto; padding: 15px; min-height: 0; background: #ffffff; }
-            .comment-item { display: flex; gap: 12px; margin-bottom: 16px; align-items: flex-start; }
-            .comment-avatar { width: 36px; height: 36px; background: #eee; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0; overflow:hidden; font-weight:bold; }
-            .comment-author { font-size: 13px; font-weight: bold; color: #333; }
-            .comment-sticker { max-width: 180px; border-radius: 8px; margin-top: 6px; display: block; }
+            /* KÜÇÜLTÜLMÜŞ VE YUKARI TAŞINMIŞ YORUM MODALI (%45 YÜKSEKLİK) */
+            .comment-modal { display: none; position: fixed; bottom: 0; left: 0; width: 100%; height: 45vh; background: #ffffff; color: #000000; z-index: 30000; border-top-left-radius: 16px; border-top-right-radius: 16px; flex-direction: column; box-shadow: 0 -5px 25px rgba(0,0,0,0.3); }
+            .comment-modal-header { padding: 12px 15px; border-bottom: 1px solid #f1f1f2; display: flex; justify-content: center; align-items: center; font-weight: bold; font-size: 15px; position: relative; flex-shrink: 0; }
+            .comment-close-btn { position: absolute; right: 15px; cursor: pointer; font-size: 18px; color: #000; }
+            .comment-scroll-area { flex-grow: 1; overflow-y: auto; padding: 12px 15px; min-height: 0; background: #ffffff; }
+            .comment-item { display: flex; gap: 10px; margin-bottom: 12px; align-items: flex-start; }
+            .comment-avatar { width: 32px; height: 32px; background: #eee; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; flex-shrink: 0; overflow:hidden; font-weight:bold; }
+            .comment-author { font-size: 12px; font-weight: bold; color: #666; }
+            .comment-text { font-size: 13px; color: #111; margin-top: 2px; }
+            .comment-sticker { max-width: 120px; border-radius: 6px; margin-top: 4px; display: block; }
             
-            .comment-input-form { padding: 10px 15px; border-top: 1px solid #f1f1f2; display: flex; gap: 12px; background: #ffffff; align-items: center; flex-shrink: 0; }
-            .comment-user-avatar { width: 32px; height: 32px; background: #333; color: #fff; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; flex-shrink: 0; overflow:hidden; font-weight:bold; }
+            .comment-input-form { padding: 10px 15px; border-top: 1px solid #f1f1f2; display: flex; gap: 10px; background: #ffffff; align-items: center; flex-shrink: 0; }
         </style>
         <script>
             let globalMutedState = true;
