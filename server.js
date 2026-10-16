@@ -146,6 +146,19 @@ app.post('/upload-story', upload.single('media'), async (req, res) => {
     } catch (err) { res.status(500).send("Hata: " + err.message); }
 });
 
+// HİKAYE SİLME ENDPOINTİ
+app.get('/delete-story/:id', async (req, res) => {
+    if (!req.session.user || !isConnected) return res.redirect('/');
+    try {
+        const storyId = new ObjectId(req.params.id);
+        const story = await storiesCol.findOne({ _id: storyId });
+        if (story && story.username === req.session.user.username) {
+            await storiesCol.deleteOne({ _id: storyId });
+        }
+    } catch (err) { console.error(err); }
+    res.redirect('/inbox');
+});
+
 app.get('/upload-page', (req, res) => {
     if (!req.session.user) return res.redirect('/');
     res.send(`
@@ -154,12 +167,58 @@ app.get('/upload-page', (req, res) => {
     <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Video Paylaş</title><style>${globalStyles}</style></head>
     <body style="display:flex; flex-direction:column; justify-content:center; align-items:center; height:100vh;">
         <h3 style="margin-bottom:20px;">Yeni Video Yayınla</h3>
-        <form action="/upload" method="POST" enctype="multipart/form-data" style="display:flex; flex-direction:column; gap:15px; width:320px; background:#1a1a1a; padding:20px; border-radius:12px;">
+        <form id="uploadForm" action="/upload" method="POST" enctype="multipart/form-data" style="display:flex; flex-direction:column; gap:15px; width:320px; background:#1a1a1a; padding:20px; border-radius:12px;" onsubmit="showProgress(event)">
             <input type="text" name="caption" placeholder="Açıklama ekle..." required style="padding:10px; background:#2a2a2a; border:none; color:#fff; border-radius:6px;">
             <input type="text" name="song" value="Orijinal Ses - ${req.session.user.nickname}" style="padding:10px; background:#2a2a2a; border:none; color:#fff; border-radius:6px;">
-            <input type="file" name="video" accept="video/*" required style="padding:10px; background:#2a2a2a; border:none; color:#fff; border-radius:6px;">
-            <button type="submit" style="background:#FE2C55; color:#fff; padding:12px; border:none; border-radius:6px; font-weight:bold; cursor:pointer;">Paylaş</button>
+            <input type="file" id="videoFile" name="video" accept="video/*" required style="padding:10px; background:#2a2a2a; border:none; color:#fff; border-radius:6px;">
+            <button type="submit" id="submitBtn" style="background:#FE2C55; color:#fff; padding:12px; border:none; border-radius:6px; font-weight:bold; cursor:pointer;">Paylaş</button>
+            
+            <div id="progressContainer" style="display:none; flex-direction:column; gap:8px; margin-top:10px;">
+                <div style="background:#333; border-radius:4px; overflow:hidden; height:12px; width:100%;">
+                    <div id="progressBar" style="width:0%; height:100%; background:linear-gradient(90deg, #25F4EE, #FE2C55); transition: width 0.2s;"></div>
+                </div>
+                <div id="progressText" style="text-align:center; font-size:13px; color:#aaa; font-weight:bold;">Yükleniyor... %0</div>
+            </div>
         </form>
+        <script>
+            function showProgress(e) {
+                e.preventDefault();
+                const form = document.getElementById('uploadForm');
+                const formData = new FormData(form);
+                const progressContainer = document.getElementById('progressContainer');
+                const progressBar = document.getElementById('progressBar');
+                const progressText = document.getElementById('progressText');
+                const submitBtn = document.getElementById('submitBtn');
+
+                progressContainer.style.display = 'flex';
+                submitBtn.disabled = true;
+                submitBtn.style.opacity = '0.5';
+
+                const xhr = new XMLHttpRequest();
+                xhr.open('POST', '/upload', true);
+
+                xhr.upload.onprogress = function(e) {
+                    if (e.lengthComputable) {
+                        const percentComplete = Math.round((e.loaded / e.total) * 100);
+                        progressBar.style.width = percentComplete + '%';
+                        progressText.innerText = 'Yükleniyor... %' + percentComplete;
+                    }
+                };
+
+                xhr.onload = function() {
+                    if (xhr.status === 200) {
+                        window.location.href = '/';
+                    } else {
+                        alert('Yükleme hatası oluştu!');
+                        submitBtn.disabled = false;
+                        submitBtn.style.opacity = '1';
+                        progressContainer.style.display = 'none';
+                    }
+                };
+
+                xhr.send(formData);
+            }
+        </script>
         ${getNavbar('home', req.session.user.username)}
     </body>
     </html>`);
@@ -379,11 +438,13 @@ app.get('/inbox', async (req, res) => {
     if (!req.session.user || !isConnected) return res.redirect('/');
     const users = await usersCol.find({ _id: { $ne: new ObjectId(req.session.user._id) } }).toArray();
     const stories = await storiesCol.find({}).sort({ _id: -1 }).toArray();
+    const myUsername = req.session.user.username;
 
     let storiesHTML = `<div class="story-circle-item" onclick="window.location='/upload-story-page'"><div class="story-circle-ring plus-ring">+</div><span>Hikayen</span></div>`;
     stories.forEach(s => {
         let mediaTag = s.mediaType === 'video' ? `<video src="${s.mediaUrl}" style="width:100%; height:100%; border-radius:50%; object-fit:cover;"></video>` : `<img src="${s.mediaUrl}" style="width:100%; height:100%; border-radius:50%; object-fit:cover;">`;
-        storiesHTML += `<div class="story-circle-item" onclick="viewStory('${s.mediaUrl}', '${s.mediaType}', '${s.username}')"><div class="story-circle-ring">${mediaTag}</div><span>@${s.username}</span></div>`;
+        let isMyStory = s.username === myUsername;
+        storiesHTML += `<div class="story-circle-item" onclick="viewStory('${s.mediaUrl}', '${s.mediaType}', '${s.username}', '${s._id}', ${isMyStory})"><div class="story-circle-ring">${mediaTag}</div><span>@${s.username}</span></div>`;
     });
 
     let userListHTML = '';
@@ -412,10 +473,25 @@ app.get('/inbox', async (req, res) => {
             .story-msg-input { flex-grow: 1; background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); border-radius: 20px; padding: 10px 15px; color: #fff; font-size: 13px; outline: none; }
         </style>
         <script>
-            function viewStory(url, type, username) {
+            let currentStoryId = '';
+            function viewStory(url, type, username, storyId, isMyStory) {
+                currentStoryId = storyId;
                 const viewer = document.getElementById('storyViewerModal');
                 const content = document.getElementById('storyMediaContent');
+                const deleteBtn = document.getElementById('storyDeleteBtn');
+                
                 document.getElementById('storyUsername').innerText = '@' + username;
+                if(isMyStory) {
+                    deleteBtn.style.display = 'block';
+                    deleteBtn.onclick = function() {
+                        if(confirm('Hikayeyi silmek istediğine emin misin?')) {
+                            window.location = '/delete-story/' + currentStoryId;
+                        }
+                    };
+                } else {
+                    deleteBtn.style.display = 'none';
+                }
+
                 if (type === 'video') {
                     content.innerHTML = '<video src="' + url + '" autoplay style="width:100%; height:100%; object-fit:contain;"></video>';
                 } else {
@@ -427,6 +503,10 @@ app.get('/inbox', async (req, res) => {
                 document.getElementById('storyViewerModal').style.display = 'none';
                 document.getElementById('storyMediaContent').innerHTML = '';
             }
+            function sendStoryReaction(emoji) {
+                alert('Tepki gönderildi: ' + emoji);
+                closeStoryViewer();
+            }
         </script>
     </head>
     <body>
@@ -436,10 +516,9 @@ app.get('/inbox', async (req, res) => {
                 <div class="story-user-info">
                     <div style="width:32px; height:32px; background:#FE2C55; border-radius:50%; display:flex; align-items:center; justify-content:center;">👤</div>
                     <span id="storyUsername">@kullanici</span>
-                    <span style="font-size:12px; color:#ddd; font-weight:normal;">• 2s önce</span>
                 </div>
                 <div style="display:flex; align-items:center; gap:10px;">
-                    <button style="background:#FE2C55; border:none; color:#fff; padding:4px 14px; border-radius:12px; font-weight:bold; font-size:12px;">Takip Et</button>
+                    <button id="storyDeleteBtn" style="background:#ff4d4d; border:none; color:#fff; padding:4px 12px; border-radius:12px; font-weight:bold; font-size:12px; display:none; cursor:pointer;">Sil</button>
                     <span onclick="closeStoryViewer()" style="font-size:24px; cursor:pointer; font-weight:bold; color:#fff;">✕</span>
                 </div>
             </div>
@@ -447,11 +526,11 @@ app.get('/inbox', async (req, res) => {
             <div id="storyMediaContent" style="width:100%; height:100%; display:flex; align-items:center; justify-content:center;"></div>
             
             <div class="story-bottom-bar">
-                <input type="text" class="story-msg-input" placeholder="Mesaj...">
-                <span style="font-size:22px; cursor:pointer;">👍</span>
-                <span style="font-size:22px; cursor:pointer;">😍</span>
-                <span style="font-size:22px; cursor:pointer;">❤️</span>
-                <span style="font-size:22px; cursor:pointer;">↪️</span>
+                <input type="text" class="story-msg-input" placeholder="Hikayeye yanıt ver...">
+                <span style="font-size:22px; cursor:pointer;" onclick="sendStoryReaction('👍')">👍</span>
+                <span style="font-size:22px; cursor:pointer;" onclick="sendStoryReaction('😍')">😍</span>
+                <span style="font-size:22px; cursor:pointer;" onclick="sendStoryReaction('❤️')">❤️</span>
+                <span style="font-size:22px; cursor:pointer;" onclick="sendStoryReaction('↪️')">↪️</span>
             </div>
         </div>
 
@@ -499,8 +578,18 @@ app.get('/chat/:targetUser', async (req, res) => {
             .chat-footer { position: fixed; bottom: 0; left: 0; width: 100%; background: #fff; padding: 10px 15px; border-top: 1px solid #eee; display: flex; align-items: center; gap: 12px; z-index: 100; }
             .chat-input-box { flex-grow: 1; background: #f1f1f2; border-radius: 24px; padding: 10px 16px; display: flex; align-items: center; }
             .chat-input-box input { width: 100%; background: transparent; border: none; outline: none; font-size: 14px; color: #000; }
-            .chat-footer-icons { display: flex; align-items: center; gap: 15px; font-size: 22px; cursor: pointer; }
+            .chat-footer-icons { display: flex; align-items: center; gap: 12px; font-size: 20px; cursor: pointer; }
         </style>
+        <script>
+            function appendEmoji(emoji) {
+                const input = document.getElementById('chatInput');
+                input.value += emoji;
+                input.focus();
+            }
+            function triggerAction(actionName) {
+                alert(actionName + ' özelliği seçildi!');
+            }
+        </script>
     </head>
     <body>
         <div class="chat-header">
@@ -523,14 +612,15 @@ app.get('/chat/:targetUser', async (req, res) => {
         </div>
 
         <form action="/send-msg/${target.username}" method="POST" class="chat-footer" autocomplete="off">
-            <span style="font-size:24px; cursor:pointer;">📷</span>
+            <span class="chat-footer-icons" onclick="triggerAction('Kamera')">📷</span>
             <div class="chat-input-box">
-                <input type="text" name="text" placeholder="Mesaj..." required>
+                <input type="text" id="chatInput" name="text" placeholder="Mesaj..." required>
             </div>
             <div class="chat-footer-icons">
-                <span>🖼️</span>
-                <span>😊</span>
-                <span>🎙️</span>
+                <span onclick="triggerAction('Galeri / Resim')">🖼️</span>
+                <span onclick="appendEmoji('😊')">😊</span>
+                <span onclick="appendEmoji('❤️')">❤️</span>
+                <span onclick="triggerAction('Ses Kaydı')">🎙️</span>
             </div>
         </form>
         <script>window.scrollTo(0, document.body.scrollHeight);</script>
@@ -544,7 +634,7 @@ app.post('/send-msg/:targetUser', async (req, res) => {
     res.redirect('back');
 });
 
-// ANA SAYFA - VİDEO EKRANI TAM KAPLAMASI VE GELİŞMİŞ YORUM PANELİ
+// ANA SAYFA - VİDEO EKRANI VE KUSURSUZ YORUM PANELİ
 app.get('/', async (req, res) => {
     if (!req.session.user) {
         return res.send(`
@@ -645,21 +735,21 @@ app.get('/', async (req, res) => {
                 <a href="/share/${v._id}" onclick="alert('Kopyalandı!');" class="action-btn">↗️<span>${v.shares}</span></a>
             </div>
 
-            <!-- DÜZELTİLMİŞ VE EKSİZSİZ YORUM PANELİ -->
+            <!-- KUSURSUZ YORUM MODALI (INPUT VE BUTONLAR SABİT) -->
             <div id="commentModal-${v._id}" class="comment-modal">
                 <div class="comment-modal-header">
                     <span>${comments.length} yorum</span>
                     <span onclick="closeComments('${v._id}')" class="comment-close-btn">✕</span>
                 </div>
                 <div class="comment-scroll-area">
-                    ${commentList || '<p style="text-align:center; color:#888; margin-top:40px;">Henüz yorum yok. İlk yorumu sen yap!</p>'}
+                    ${commentList || '<p style="text-align:center; color:#888; margin-top:40px;">Henüz yorum yok. İlk yorumu sen yap! (Aşağıdan yazabilirsin)</p>'}
                 </div>
                 <form action="/comment/${v._id}" method="POST" enctype="multipart/form-data" class="comment-input-form" autocomplete="off">
-                    <input type="text" name="comment" placeholder="Yorum ekleyin..." required>
+                    <input type="text" id="cInput-${v._id}" name="comment" placeholder="Yorum ekleyin..." required>
                     <input type="file" name="image" accept="image/*" style="display:none;" id="img-${v._id}">
                     <label for="img-${v._id}" class="comment-icon-btn">🖼️</label>
-                    <span class="comment-icon-btn">😊</span>
-                    <span class="comment-icon-btn">@</span>
+                    <span class="comment-icon-btn" onclick="addCommentEmoji('${v._id}', '😊')">😊</span>
+                    <span class="comment-icon-btn" onclick="addCommentEmoji('${v._id}', '@')">@</span>
                     <button type="submit" class="comment-send-btn">Gönder</button>
                 </form>
             </div>
@@ -681,7 +771,6 @@ app.get('/', async (req, res) => {
             .feed-scroll { height: 100vh; overflow-y: scroll; scroll-snap-type: y mandatory; -webkit-overflow-scrolling: touch; }
             .video-container { width: 100vw; height: 100vh; scroll-snap-align: start; position: relative; display: flex; justify-content: center; align-items: center; background: #000; }
             
-            /* object-fit: cover ile videolar ekranı tam doldurur */
             .feed-video { width: 100%; height: 100%; object-fit: cover; position: absolute; top: 0; left: 0; }
             
             .video-info { position: absolute; bottom: 80px; left: 15px; z-index: 10; max-width: 70%; }
@@ -689,21 +778,21 @@ app.get('/', async (req, res) => {
             .action-btn { background: rgba(0,0,0,0.4); width: 42px; height: 42px; border-radius: 50%; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 16px; color: #fff; }
             .sound-toggle { position: absolute; top: 65px; right: 15px; background: rgba(0,0,0,0.6); color: #fff; padding: 6px 12px; border-radius: 15px; font-size: 12px; z-index: 15; cursor: pointer; border: 1px solid rgba(255,255,255,0.3); }
             
-            /* Gelişmiş Yorum Modalı Stilleri */
+            /* DÜZELTİLMİŞ KUSURSUZ YORUM MODALI STİLLERİ */
             .comment-modal { display: none; position: fixed; bottom: 0; left: 0; width: 100%; height: 75vh; background: #fff; color: #000; z-index: 30000; border-top-left-radius: 16px; border-top-right-radius: 16px; flex-direction: column; box-shadow: 0 -5px 25px rgba(0,0,0,0.3); }
             .comment-modal-header { padding: 15px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; font-weight: bold; font-size: 15px; flex-shrink: 0; }
             .comment-close-btn { cursor: pointer; font-size: 20px; padding: 0 5px; }
-            .comment-scroll-area { flex-grow: 1; overflow-y: auto; padding: 15px; }
+            .comment-scroll-area { flex-grow: 1; overflow-y: auto; padding: 15px; min-height: 0; }
             .comment-item { display: flex; gap: 12px; margin-bottom: 16px; align-items: flex-start; }
             .comment-avatar { width: 36px; height: 36px; background: #eee; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0; }
             .comment-author { font-size: 12px; font-weight: bold; color: #666; }
             .comment-text { font-size: 14px; color: #111; margin-top: 3px; }
             .comment-sticker { max-width: 140px; border-radius: 8px; margin-top: 6px; }
             
-            .comment-input-form { padding: 12px 15px; border-top: 1px solid #eee; display: flex; gap: 10px; background: #fff; align-items: center; flex-shrink: 0; }
-            .comment-input-form input[type="text"] { flex-grow: 1; padding: 12px 16px; background: #f1f1f2; border: none; border-radius: 20px; outline: none; font-size: 14px; color: #000; }
-            .comment-icon-btn { cursor: pointer; font-size: 20px; user-select: none; }
-            .comment-send-btn { background: #FE2C55; color: #fff; border: none; padding: 10px 18px; border-radius: 20px; font-weight: bold; cursor: pointer; flex-shrink: 0; }
+            .comment-input-form { padding: 12px 15px; border-top: 1px solid #eee; display: flex; gap: 8px; background: #fff; align-items: center; flex-shrink: 0; }
+            .comment-input-form input[type="text"] { flex-grow: 1; padding: 12px 16px; background: #f1f1f2; border: none; border-radius: 20px; outline: none; font-size: 14px; color: #000; min-width: 0; }
+            .comment-icon-btn { cursor: pointer; font-size: 18px; user-select: none; flex-shrink: 0; }
+            .comment-send-btn { background: #FE2C55; color: #fff; border: none; padding: 10px 16px; border-radius: 20px; font-weight: bold; cursor: pointer; flex-shrink: 0; font-size: 13px; }
         </style>
         <script>
             let globalMutedState = true;
@@ -716,6 +805,12 @@ app.get('/', async (req, res) => {
 
             function openComments(id) { document.getElementById('commentModal-' + id).style.display = 'flex'; }
             function closeComments(id) { document.getElementById('commentModal-' + id).style.display = 'none'; }
+            
+            function addCommentEmoji(id, text) {
+                const inp = document.getElementById('cInput-' + id);
+                inp.value += text;
+                inp.focus();
+            }
 
             document.addEventListener("DOMContentLoaded", () => {
                 const containers = document.querySelectorAll('.video-container');
