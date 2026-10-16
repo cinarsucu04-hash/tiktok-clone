@@ -146,7 +146,6 @@ app.post('/upload-story', upload.single('media'), async (req, res) => {
     } catch (err) { res.status(500).send("Hata: " + err.message); }
 });
 
-// HİKAYE SİLME ENDPOINTİ
 app.get('/delete-story/:id', async (req, res) => {
     if (!req.session.user || !isConnected) return res.redirect('/');
     try {
@@ -634,7 +633,7 @@ app.post('/send-msg/:targetUser', async (req, res) => {
     res.redirect('back');
 });
 
-// ANA SAYFA - VİDEO EKRANI VE KUSURSUZ YORUM PANELİ
+// ANA SAYFA - BEYAZ MOD YORUM PANELİ VE VİDEO AKIŞI
 app.get('/', async (req, res) => {
     if (!req.session.user) {
         return res.send(`
@@ -735,22 +734,22 @@ app.get('/', async (req, res) => {
                 <a href="/share/${v._id}" onclick="alert('Kopyalandı!');" class="action-btn">↗️<span>${v.shares}</span></a>
             </div>
 
-            <!-- KUSURSUZ YORUM MODALI (INPUT VE BUTONLAR SABİT) -->
+            <!-- GÖNDERDİĞİN FOTOĞRAFTAKİ BİREBİR BEYAZ MOD TIKTOK YORUM MODALI -->
             <div id="commentModal-${v._id}" class="comment-modal">
                 <div class="comment-modal-header">
                     <span>${comments.length} yorum</span>
                     <span onclick="closeComments('${v._id}')" class="comment-close-btn">✕</span>
                 </div>
                 <div class="comment-scroll-area">
-                    ${commentList || '<p style="text-align:center; color:#888; margin-top:40px;">Henüz yorum yok. İlk yorumu sen yap! (Aşağıdan yazabilirsin)</p>'}
+                    ${commentList || '<div style="text-align:center; color:#888; margin-top:60px; font-size:14px;">Henüz yorum yok. İlk yorumu sen yap!</div>'}
                 </div>
                 <form action="/comment/${v._id}" method="POST" enctype="multipart/form-data" class="comment-input-form" autocomplete="off">
+                    <div class="comment-user-avatar">👤</div>
                     <input type="text" id="cInput-${v._id}" name="comment" placeholder="Yorum ekleyin..." required>
                     <input type="file" name="image" accept="image/*" style="display:none;" id="img-${v._id}">
                     <label for="img-${v._id}" class="comment-icon-btn">🖼️</label>
                     <span class="comment-icon-btn" onclick="addCommentEmoji('${v._id}', '😊')">😊</span>
                     <span class="comment-icon-btn" onclick="addCommentEmoji('${v._id}', '@')">@</span>
-                    <button type="submit" class="comment-send-btn">Gönder</button>
                 </form>
             </div>
         </div>`;
@@ -778,21 +777,21 @@ app.get('/', async (req, res) => {
             .action-btn { background: rgba(0,0,0,0.4); width: 42px; height: 42px; border-radius: 50%; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 16px; color: #fff; }
             .sound-toggle { position: absolute; top: 65px; right: 15px; background: rgba(0,0,0,0.6); color: #fff; padding: 6px 12px; border-radius: 15px; font-size: 12px; z-index: 15; cursor: pointer; border: 1px solid rgba(255,255,255,0.3); }
             
-            /* DÜZELTİLMİŞ KUSURSUZ YORUM MODALI STİLLERİ */
-            .comment-modal { display: none; position: fixed; bottom: 0; left: 0; width: 100%; height: 75vh; background: #fff; color: #000; z-index: 30000; border-top-left-radius: 16px; border-top-right-radius: 16px; flex-direction: column; box-shadow: 0 -5px 25px rgba(0,0,0,0.3); }
-            .comment-modal-header { padding: 15px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; font-weight: bold; font-size: 15px; flex-shrink: 0; }
-            .comment-close-btn { cursor: pointer; font-size: 20px; padding: 0 5px; }
-            .comment-scroll-area { flex-grow: 1; overflow-y: auto; padding: 15px; min-height: 0; }
+            /* BEYAZ MOD TIKTOK YORUM MODALI (FOTOĞRAFA BİREBİR UYUMLU) */
+            .comment-modal { display: none; position: fixed; bottom: 0; left: 0; width: 100%; height: 75vh; background: #ffffff; color: #000000; z-index: 30000; border-top-left-radius: 16px; border-top-right-radius: 16px; flex-direction: column; box-shadow: 0 -5px 25px rgba(0,0,0,0.3); }
+            .comment-modal-header { padding: 15px; border-bottom: 1px solid #f1f1f2; display: flex; justify-content: center; align-items: center; font-weight: bold; font-size: 15px; position: relative; flex-shrink: 0; }
+            .comment-close-btn { position: absolute; right: 15px; cursor: pointer; font-size: 20px; color: #000; }
+            .comment-scroll-area { flex-grow: 1; overflow-y: auto; padding: 15px; min-height: 0; background: #ffffff; }
             .comment-item { display: flex; gap: 12px; margin-bottom: 16px; align-items: flex-start; }
             .comment-avatar { width: 36px; height: 36px; background: #eee; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0; }
             .comment-author { font-size: 12px; font-weight: bold; color: #666; }
             .comment-text { font-size: 14px; color: #111; margin-top: 3px; }
             .comment-sticker { max-width: 140px; border-radius: 8px; margin-top: 6px; }
             
-            .comment-input-form { padding: 12px 15px; border-top: 1px solid #eee; display: flex; gap: 8px; background: #fff; align-items: center; flex-shrink: 0; }
-            .comment-input-form input[type="text"] { flex-grow: 1; padding: 12px 16px; background: #f1f1f2; border: none; border-radius: 20px; outline: none; font-size: 14px; color: #000; min-width: 0; }
-            .comment-icon-btn { cursor: pointer; font-size: 18px; user-select: none; flex-shrink: 0; }
-            .comment-send-btn { background: #FE2C55; color: #fff; border: none; padding: 10px 16px; border-radius: 20px; font-weight: bold; cursor: pointer; flex-shrink: 0; font-size: 13px; }
+            .comment-input-form { padding: 10px 15px; border-top: 1px solid #f1f1f2; display: flex; gap: 12px; background: #ffffff; align-items: center; flex-shrink: 0; }
+            .comment-user-avatar { width: 32px; height: 32px; background: #333; color: #fff; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; flex-shrink: 0; }
+            .comment-input-form input[type="text"] { flex-grow: 1; padding: 10px 16px; background: #f1f1f2; border: none; border-radius: 20px; outline: none; font-size: 14px; color: #000; min-width: 0; }
+            .comment-icon-btn { cursor: pointer; font-size: 22px; user-select: none; flex-shrink: 0; }
         </style>
         <script>
             let globalMutedState = true;
@@ -808,7 +807,11 @@ app.get('/', async (req, res) => {
             
             function addCommentEmoji(id, text) {
                 const inp = document.getElementById('cInput-' + id);
-                inp.value += text;
+                if(text === '@') {
+                    inp.value += '@';
+                } else {
+                    inp.value += text;
+                }
                 inp.focus();
             }
 
