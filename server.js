@@ -47,7 +47,7 @@ const storage = multer.diskStorage({
 
 const upload = multer({ 
     storage: storage,
-    limits: { fileSize: 200 * 1024 * 1024 } // 200MB limit
+    limits: { fileSize: 200 * 1024 * 1024 }
 });
 
 app.use(bodyParser.urlencoded({ extended: true }));
@@ -87,7 +87,7 @@ function getNavbar(activeTab, username) {
 
 const globalStyles = `
     * { box-sizing: border-box; }
-    body { background: #000; color: #fff; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0; padding-bottom: 70px; min-height: 100vh; overflow-x: hidden; }
+    body { background: #000; color: #fff; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0; padding-bottom: 60px; min-height: 100vh; overflow-x: hidden; }
     a { text-decoration: none; color: inherit; }
     .tiktok-nav { position: fixed; bottom: 0; left: 0; width: 100%; height: 60px; background: #121212; display: flex; justify-content: space-around; align-items: center; border-top: 1px solid #222; z-index: 99999; }
     .tiktok-nav a { display: flex; flex-direction: column; align-items: center; color: #888; font-size: 10px; gap: 3px; }
@@ -100,7 +100,7 @@ const globalStyles = `
     .progress-bar-fill { width: 0%; height: 100%; background: #FE2C55; transition: width 0.2s ease; }
 `;
 
-// Kayıt ve Giriş
+// Kayıt / Giriş
 app.post('/register', async (req, res) => {
     if (!isConnected) return res.send("<script>alert('Veritabanı bağlanıyor...'); window.location='/';</script>");
     const { username, nickname, password } = req.body;
@@ -180,7 +180,7 @@ app.get('/upload-story-page', (req, res) => {
                 <label style="font-size: 13px; color: #aaa;">Fotoğraf veya Video Seç:</label>
                 <input type="file" id="storyMedia" name="media" accept="image/*,video/*" required>
                 <button type="submit" class="btn">Hikayeye Ekle</button>
-                <a href="/" style="text-align: center; color: #888; font-size: 13px; margin-top: 5px;">İptal</a>
+                <a href="/inbox" style="text-align: center; color: #888; font-size: 13px; margin-top: 5px;">İptal</a>
             </form>
         </div>
 
@@ -206,7 +206,7 @@ app.get('/upload-story-page', (req, res) => {
                 };
 
                 xhr.onload = function() {
-                    if (xhr.status === 200) window.location.href = '/';
+                    if (xhr.status === 200) window.location.href = '/inbox';
                     else {
                         alert('Yükleme hatası: ' + xhr.responseText);
                         document.getElementById('progressOverlay').style.display = 'none';
@@ -215,14 +215,14 @@ app.get('/upload-story-page', (req, res) => {
                 xhr.send(formData);
             });
         </script>
-        ${getNavbar('home', req.session.user.username)}
+        ${getNavbar('inbox', req.session.user.username)}
     </body>
     </html>
     `);
 });
 
 app.post('/upload-story', upload.single('media'), async (req, res) => {
-    if (!req.session.user || !isConnected) return res.status(500).send("Veritabanı bağlantı hatası");
+    if (!req.session.user || !isConnected) return res.status(500).send("Veritabanı hatası");
     try {
         if (!req.file) return res.status(400).send("Dosya bulunamadı");
         const mediaUrl = `/uploads/${req.file.filename}`;
@@ -318,9 +318,9 @@ app.get('/upload-page', (req, res) => {
 });
 
 app.post('/upload', upload.single('video'), async (req, res) => {
-    if (!req.session.user || !isConnected) return res.status(500).send("Sunucu bağlantı hatası");
+    if (!req.session.user || !isConnected) return res.status(500).send("Sunucu hatası");
     try {
-        if (!req.file) return res.status(400).send("Video dosyası bulunamadı");
+        if (!req.file) return res.status(400).send("Video bulunamadı");
         const videoUrl = `/uploads/${req.file.filename}`;
 
         await videosCol.insertOne({
@@ -336,11 +336,11 @@ app.post('/upload', upload.single('video'), async (req, res) => {
         });
         res.status(200).send("OK");
     } catch (err) {
-        res.status(500).send("Yükleme sunucu hatası: " + err.message);
+        res.status(500).send("Hata: " + err.message);
     }
 });
 
-// Yorum ve Çıkartma/Fotoğraf Gönderimi
+// Yorum Gönderme
 app.post('/comment/:id', upload.single('image'), async (req, res) => {
     if (!req.session.user || !isConnected) return res.redirect('/');
     try {
@@ -377,7 +377,7 @@ app.get('/delete-video/:id', async (req, res) => {
     res.redirect(`/profile/${req.session.user.username}`);
 });
 
-// Beğeni
+// Beğeni & Etkileşimler
 app.get('/like/:id', async (req, res) => {
     if (!req.session.user || !isConnected) return res.redirect('/');
     const videoId = new ObjectId(req.params.id);
@@ -394,7 +394,6 @@ app.get('/like/:id', async (req, res) => {
     res.redirect('back');
 });
 
-// Favori ve Paylaş
 app.get('/favorite/:id', async (req, res) => {
     if (!req.session.user || !isConnected) return res.redirect('/');
     await videosCol.updateOne({ _id: new ObjectId(req.params.id) }, { $inc: { favorites: 1 } });
@@ -407,7 +406,6 @@ app.get('/share/:id', async (req, res) => {
     res.redirect('back');
 });
 
-// Takip Et / Takipten Çık
 app.get('/follow/:id', async (req, res) => {
     if (!req.session.user || !isConnected) return res.redirect('/');
     const followerId = req.session.user._id;
@@ -455,7 +453,7 @@ app.post('/update-profile', upload.fields([{ name: 'avatar', maxCount: 1 }, { na
     }
 });
 
-// 1. ESKİ & GELİŞTİRİLMİŞ PROFİL SAYFASI
+// Profil Sayfası
 app.get('/profile/:username', async (req, res) => {
     if (!req.session.user || !isConnected) return res.redirect('/');
     const targetUser = await usersCol.findOne({ username: req.params.username });
@@ -571,7 +569,7 @@ app.get('/profile/:username', async (req, res) => {
     `);
 });
 
-// 2. ESKİ & GELİŞTİRİLMİŞ KEŞFET / ARAMA SAYFASI
+// Keşfet & Arama Sayfası
 app.get('/search', async (req, res) => {
     if (!req.session.user) return res.redirect('/');
     const query = req.query.q || '';
@@ -660,10 +658,29 @@ app.get('/search', async (req, res) => {
     `);
 });
 
-// Gelen Kutusu ve Mesajlaşma
+// Gelen Kutusu (Hikayeler Burada Toplandı)
 app.get('/inbox', async (req, res) => {
     if (!req.session.user || !isConnected) return res.redirect('/');
     const users = await usersCol.find({ _id: { $ne: new ObjectId(req.session.user._id) } }).toArray();
+    const stories = await storiesCol.find({}).sort({ _id: -1 }).toArray();
+
+    let storiesHTML = `
+    <div class="story-circle-item" onclick="window.location='/upload-story-page'">
+        <div class="story-circle-ring plus-ring">+</div>
+        <span>Hikayen</span>
+    </div>`;
+
+    stories.forEach(s => {
+        let mediaTag = s.mediaType === 'video' 
+            ? `<video src="${s.mediaUrl}" style="width:100%; height:100%; border-radius:50%; object-fit:cover;"></video>`
+            : `<img src="${s.mediaUrl}" style="width:100%; height:100%; border-radius:50%; object-fit:cover;">`;
+
+        storiesHTML += `
+        <div class="story-circle-item" onclick="viewStory('${s.mediaUrl}', '${s.mediaType}', '${s.username}')">
+            <div class="story-circle-ring">${mediaTag}</div>
+            <span>@${s.username}</span>
+        </div>`;
+    });
 
     let userListHTML = '';
     users.forEach(u => {
@@ -687,13 +704,76 @@ app.get('/inbox', async (req, res) => {
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Gelen Kutusu</title>
-        <style>${globalStyles}</style>
+        <style>
+            ${globalStyles}
+            .story-inbox-bar { display: flex; gap: 15px; padding: 15px; overflow-x: auto; background: #121212; border-bottom: 1px solid #222; scrollbar-width: none; }
+            .story-circle-item { display: flex; flex-direction: column; align-items: center; gap: 5px; cursor: pointer; flex-shrink: 0; }
+            .story-circle-ring { width: 58px; height: 58px; border-radius: 50%; background: linear-gradient(135deg, #25F4EE, #FE2C55); padding: 2px; display: flex; align-items: center; justify-content: center; }
+            .story-circle-ring.plus-ring { background: #222; font-size: 26px; color: #fff; font-weight: bold; border: 1px solid #444; }
+            .story-circle-item span { font-size: 11px; color: #ccc; max-width: 60px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+            .story-viewer-modal { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: #000; z-index: 999999; flex-direction: column; justify-content: space-between; }
+            .story-top-bar { position: absolute; top: 15px; left: 0; width: 100%; display: flex; justify-content: space-between; align-items: center; padding: 0 15px; z-index: 10; box-sizing: border-box; }
+            .story-user-info { display: flex; align-items: center; gap: 10px; font-size: 14px; font-weight: bold; text-shadow: 0 1px 2px #000; }
+            .story-progress-bar { position: absolute; top: 5px; left: 10px; width: calc(100% - 20px); height: 2px; background: rgba(255,255,255,0.4); border-radius: 2px; overflow: hidden; }
+            .story-progress-fill { width: 100%; height: 100%; background: #fff; animation: storyProgress 5s linear forwards; }
+            @keyframes storyProgress { from { width: 0%; } to { width: 100%; } }
+            .story-bottom-bar { position: absolute; bottom: 20px; left: 0; width: 100%; display: flex; align-items: center; justify-content: space-between; padding: 0 15px; box-sizing: border-box; gap: 10px; z-index: 10; }
+            .story-msg-input { flex-grow: 1; background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); border-radius: 20px; padding: 10px 15px; color: #fff; font-size: 13px; outline: none; }
+        </style>
+        <script>
+            function viewStory(url, type, username) {
+                const viewer = document.getElementById('storyViewerModal');
+                const content = document.getElementById('storyMediaContent');
+                document.getElementById('storyUsername').innerText = '@' + username;
+                
+                if (type === 'video') {
+                    content.innerHTML = '<video src="' + url + '" autoplay style="width:100%; height:100%; object-fit:contain;"></video>';
+                } else {
+                    content.innerHTML = '<img src="' + url + '" style="width:100%; height:100%; object-fit:contain;">';
+                }
+                viewer.style.display = 'flex';
+            }
+            function closeStoryViewer() {
+                document.getElementById('storyViewerModal').style.display = 'none';
+                document.getElementById('storyMediaContent').innerHTML = '';
+            }
+        </script>
     </head>
     <body>
-        <div style="padding: 15px; border-bottom: 1px solid #222; display:flex; justify-content:space-between; align-items:center;">
-            <h2 style="margin: 0; font-size: 20px;">Gelen Kutusu & Mesajlar</h2>
-            <a href="/upload-story-page" style="background:#FE2C55; color:#fff; padding:6px 14px; border-radius:15px; font-size:12px; font-weight:bold;">+ Hikaye Ekle</a>
+        <div id="storyViewerModal" class="story-viewer-modal">
+            <div class="story-progress-bar"><div class="story-progress-fill"></div></div>
+            <div class="story-top-bar">
+                <div class="story-user-info">
+                    <div style="width:32px; height:32px; background:#FE2C55; border-radius:50%; display:flex; align-items:center; justify-content:center;">👤</div>
+                    <span id="storyUsername">@kullanici</span>
+                    <span style="font-size:12px; color:#ddd; font-weight:normal;">• 2s önce</span>
+                </div>
+                <div style="display:flex; align-items:center; gap:10px;">
+                    <button style="background:#FE2C55; border:none; color:#fff; padding:4px 12px; border-radius:12px; font-weight:bold; font-size:12px;">Takip Et</button>
+                    <span onclick="closeStoryViewer()" style="font-size:24px; cursor:pointer; font-weight:bold;">✕</span>
+                </div>
+            </div>
+            
+            <div id="storyMediaContent" style="width:100%; height:100%; display:flex; align-items:center; justify-content:center;"></div>
+            
+            <div class="story-bottom-bar">
+                <input type="text" class="story-msg-input" placeholder="Mesaj gönder...">
+                <span style="font-size:22px;">👍</span>
+                <span style="font-size:22px;">😍</span>
+                <span style="font-size:22px;">❤️</span>
+                <span style="font-size:22px;">↪️</span>
+            </div>
         </div>
+
+        <div style="padding: 15px 15px 5px 15px;">
+            <h2 style="margin: 0; font-size: 20px;">Gelen Kutusu & Hikayeler</h2>
+        </div>
+        
+        <div class="story-inbox-bar">
+            ${storiesHTML}
+        </div>
+
         ${userListHTML || '<p style="text-align:center; color:#666; margin-top:40px;">Sohbet edilecek başka kullanıcı yok.</p>'}
         ${getNavbar('inbox', req.session.user.username)}
     </body>
@@ -773,7 +853,7 @@ app.post('/send-msg/:targetUser', async (req, res) => {
     res.redirect('back');
 });
 
-// 3. ESKİ & GELİŞTİRİLMİŞ GİRİŞ / KAYIT OL SAYFASI
+// Ana Sayfa Akışı
 app.get('/', async (req, res) => {
     if (!req.session.user) {
         return res.send(`
@@ -853,35 +933,27 @@ app.get('/', async (req, res) => {
         }
     }
 
-    const stories = isConnected ? await storiesCol.find({}).sort({ _id: -1 }).toArray() : [];
-
-    let storiesHTML = `
-    <div class="story-item" onclick="window.location='/upload-story-page'">
-        <div class="story-ring plus">+</div>
-        <span>Hikayen</span>
-    </div>`;
-
-    stories.forEach(s => {
-        let mediaTag = s.mediaType === 'video' 
-            ? `<video src="${s.mediaUrl}" style="width:100%; height:100%; border-radius:50%; object-fit:cover;"></video>`
-            : `<img src="${s.mediaUrl}" style="width:100%; height:100%; border-radius:50%; object-fit:cover;">`;
-
-        storiesHTML += `
-        <div class="story-item" onclick="viewStory('${s.mediaUrl}', '${s.mediaType}')">
-            <div class="story-ring">${mediaTag}</div>
-            <span>@${s.username}</span>
-        </div>`;
-    });
-
     let feedHTML = '';
     for (let v of videos) {
         const comments = await commentsCol.find({ video_id: v._id }).sort({ _id: -1 }).toArray();
         let commentList = '';
         comments.forEach(c => {
             commentList += `
-            <div style="margin-bottom:12px; font-size:13px;">
-                <b style="color:#FE2C55;">@${c.username}:</b> ${c.comment}
-                ${c.image ? `<br><img src="${c.image}" style="max-width:140px; border-radius:8px; margin-top:6px;">` : ''}
+            <div class="comment-item">
+                <div class="comment-avatar">👤</div>
+                <div class="comment-content">
+                    <div class="comment-author">@${c.username}</div>
+                    <div class="comment-text">${c.comment}</div>
+                    ${c.image ? `<img src="${c.image}" class="comment-sticker">` : ''}
+                    <div class="comment-meta">
+                        <span>2s</span>
+                        <span class="reply-btn">Yanıtla</span>
+                    </div>
+                </div>
+                <div class="comment-like">
+                    <span>♡</span>
+                    <span style="font-size:10px;">0</span>
+                </div>
             </div>`;
         });
 
@@ -901,18 +973,25 @@ app.get('/', async (req, res) => {
                 <a href="/favorite/${v._id}" class="action-btn">⭐<span>${v.favorites}</span></a>
                 <a href="/share/${v._id}" onclick="alert('Video bağlantısı kopyalandı!');" class="action-btn">↗️<span>${v.shares}</span></a>
             </div>
+
+            <!-- TikTok Birebir Yorum Modalı -->
             <div id="commentModal-${v._id}" class="comment-modal">
-                <div class="comment-box">
-                    <h3>Yorumlar (${comments.length})</h3>
-                    <div class="comment-list">${commentList || '<p style="color:#666;">Henüz yorum yok.</p>'}</div>
-                    <form action="/comment/${v._id}" method="POST" enctype="multipart/form-data" style="display:flex; flex-direction:column; gap:8px;">
-                        <input type="text" name="comment" placeholder="Yorum yaz veya çıkartma ekle..." style="padding:10px; background:#2f2f2f; border:none; color:#fff; border-radius:6px; outline:none;" autocomplete="off">
-                        <label style="font-size:11px; color:#aaa;">Çıkartma / Fotoğraf Seç:</label>
-                        <input type="file" name="image" accept="image/*" style="font-size:11px; color:#aaa;">
-                        <button type="submit" class="comment-btn">Gönder</button>
-                    </form>
-                    <button type="button" class="close-comment" onclick="closeComments('${v._id}')">Kapat</button>
+                <div class="comment-modal-header">
+                    <span>${comments.length} yorum</span>
+                    <span onclick="closeComments('${v._id}')" class="close-comment-icon">✕</span>
                 </div>
+                <div class="comment-list-container">
+                    ${commentList || '<p style="text-align:center; color:#888; margin-top:40px;">Henüz yorum yok. İlk yorumu sen yap!</p>'}
+                </div>
+                <form action="/comment/${v._id}" method="POST" enctype="multipart/form-data" class="comment-input-bar">
+                    <div class="input-wrapper">
+                        <input type="text" name="comment" placeholder="Yorum ekleyin..." autocomplete="off">
+                        <label class="sticker-select-btn">
+                            📁 <input type="file" name="image" accept="image/*" style="display:none;">
+                        </label>
+                    </div>
+                    <button type="submit" class="comment-send-btn">🔴</button>
+                </form>
             </div>
         </div>`;
     }
@@ -927,34 +1006,40 @@ app.get('/', async (req, res) => {
         <style>
             ${globalStyles}
             body { overflow: hidden; }
-            .top-tabs { position: fixed; top: 0; left: 0; width: 100%; height: 45px; background: rgba(0,0,0,0.5); backdrop-filter: blur(10px); display: flex; justify-content: center; align-items: center; gap: 25px; z-index: 1000; font-size: 15px; font-weight: bold; color: #aaa; }
+            .top-tabs { position: fixed; top: 0; left: 0; width: 100%; height: 45px; background: rgba(0,0,0,0.4); backdrop-filter: blur(10px); display: flex; justify-content: center; align-items: center; gap: 25px; z-index: 1000; font-size: 15px; font-weight: bold; color: #aaa; }
             .top-tabs a { color: #aaa; text-decoration: none; }
             .top-tabs a.active { color: #fff; border-bottom: 2px solid #fff; padding-bottom: 4px; }
-            .story-bar { position: fixed; top: 45px; left: 0; width: 100%; background: #000; display: flex; gap: 12px; padding: 10px 15px; overflow-x: auto; z-index: 999; border-bottom: 1px solid #1a1a1a; scrollbar-width: none; }
-            .story-bar::-webkit-scrollbar { display: none; }
-            .story-item { display: flex; flex-direction: column; align-items: center; gap: 4px; cursor: pointer; flex-shrink: 0; }
-            .story-ring { width: 56px; height: 56px; border-radius: 50%; background: linear-gradient(135deg, #25F4EE, #FE2C55); padding: 2px; display: flex; align-items: center; justify-content: center; overflow: hidden; }
-            .story-ring.plus { background: #333; font-size: 24px; color: #fff; }
-            .story-item span { font-size: 11px; color: #ccc; max-width: 60px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
             
-            .feed-scroll { height: calc(100vh - 120px); margin-top: 120px; overflow-y: scroll; scroll-snap-type: y mandatory; }
-            .video-container { width: 100vw; height: calc(100vh - 120px); scroll-snap-align: start; position: relative; display: flex; justify-content: center; align-items: center; background: #000; }
+            .feed-scroll { height: 100vh; overflow-y: scroll; scroll-snap-type: y mandatory; }
+            .video-container { width: 100vw; height: 100vh; scroll-snap-align: start; position: relative; display: flex; justify-content: center; align-items: center; background: #000; }
             video { width: 100%; height: 100%; object-fit: cover; position: absolute; top: 0; left: 0; }
-            .video-info { position: absolute; bottom: 20px; left: 15px; z-index: 10; max-width: 70%; }
-            .sidebar-actions { position: absolute; bottom: 30px; right: 15px; z-index: 10; display: flex; flex-direction: column; gap: 12px; align-items: center; }
+            .video-info { position: absolute; bottom: 80px; left: 15px; z-index: 10; max-width: 70%; }
+            .sidebar-actions { position: absolute; bottom: 90px; right: 15px; z-index: 10; display: flex; flex-direction: column; gap: 14px; align-items: center; }
             .action-btn { background: rgba(0,0,0,0.4); width: 42px; height: 42px; border-radius: 50%; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 16px; color: #fff; text-decoration: none; }
             .action-btn span { font-size: 10px; margin-top: 1px; }
-            .sound-toggle { position: absolute; top: 15px; right: 15px; background: rgba(0,0,0,0.6); color: #fff; padding: 6px 12px; border-radius: 15px; font-size: 12px; z-index: 15; cursor: pointer; border: 1px solid rgba(255,255,255,0.3); }
-            .fullscreen-btn { position: absolute; top: 15px; right: 120px; background: rgba(0,0,0,0.6); color: #fff; padding: 6px 12px; border-radius: 15px; font-size: 12px; z-index: 15; cursor: pointer; border: 1px solid rgba(255,255,255,0.3); }
+            .sound-toggle { position: absolute; top: 65px; right: 15px; background: rgba(0,0,0,0.6); color: #fff; padding: 6px 12px; border-radius: 15px; font-size: 12px; z-index: 15; cursor: pointer; border: 1px solid rgba(255,255,255,0.3); }
+            .fullscreen-btn { position: absolute; top: 65px; right: 120px; background: rgba(0,0,0,0.6); color: #fff; padding: 6px 12px; border-radius: 15px; font-size: 12px; z-index: 15; cursor: pointer; border: 1px solid rgba(255,255,255,0.3); }
             
-            .comment-modal { display: none; position: fixed; bottom: 0; left: 0; width: 100%; height: 60vh; background: #1a1a1a; z-index: 3000; border-top-left-radius: 16px; border-top-right-radius: 16px; box-sizing: border-box; padding: 15px; flex-direction: column; justify-content: space-between; }
-            .comment-box { display: flex; flex-direction: column; height: 100%; }
-            .comment-list { flex-grow: 1; overflow-y: scroll; margin: 10px 0; }
-            .comment-btn { background: #FE2C55; color: #fff; border: none; padding: 10px; border-radius: 6px; font-weight: bold; cursor: pointer; width: 100%; }
-            .close-comment { background: #333; color: #fff; border: none; padding: 8px; border-radius: 6px; margin-top: 6px; cursor: pointer; width: 100%; }
-
-            .story-viewer { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: #000; z-index: 9000; justify-content: center; align-items: center; }
-            .story-viewer-close { position: absolute; top: 20px; right: 20px; font-size: 24px; color: #fff; cursor: pointer; z-index: 9001; }
+            /* TikTok Birebir Yorum Stilleri */
+            .comment-modal { display: none; position: fixed; bottom: 0; left: 0; width: 100%; height: 70vh; background: #fff; color: #000; z-index: 30000; border-top-left-radius: 12px; border-top-right-radius: 12px; box-sizing: border-box; flex-direction: column; justify-content: space-between; }
+            .comment-modal-header { padding: 12px 15px; text-align: center; font-weight: bold; font-size: 13px; border-bottom: 1px solid #eee; position: relative; }
+            .close-comment-icon { position: absolute; right: 15px; top: 12px; font-size: 16px; cursor: pointer; color: #666; }
+            .comment-list-container { flex-grow: 1; overflow-y: scroll; padding: 15px; }
+            .comment-item { display: flex; gap: 12px; margin-bottom: 15px; align-items: flex-start; }
+            .comment-avatar { width: 32px; height: 32px; background: #eee; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; flex-shrink: 0; }
+            .comment-content { flex-grow: 1; }
+            .comment-author { font-size: 12px; font-weight: bold; color: #666; }
+            .comment-text { font-size: 14px; margin-top: 2px; color: #111; }
+            .comment-sticker { max-width: 120px; border-radius: 8px; margin-top: 5px; }
+            .comment-meta { font-size: 11px; color: #888; margin-top: 4px; display: flex; gap: 10px; }
+            .reply-btn { font-weight: bold; cursor: pointer; }
+            .comment-like { display: flex; flex-direction: column; align-items: center; color: #888; font-size: 14px; cursor: pointer; }
+            
+            .comment-input-bar { padding: 10px 15px; border-top: 1px solid #eee; display: flex; align-items: center; gap: 10px; background: #fff; }
+            .input-wrapper { flex-grow: 1; background: #f1f1f2; border-radius: 20px; display: flex; align-items: center; padding: 8px 12px; gap: 8px; }
+            .input-wrapper input { background: transparent; border: none; outline: none; width: 100%; font-size: 13px; color: #000; }
+            .sticker-select-btn { cursor: pointer; font-size: 16px; }
+            .comment-send-btn { background: none; border: none; font-size: 20px; cursor: pointer; }
         </style>
         <script>
             let globalMutedState = true;
@@ -982,21 +1067,6 @@ app.get('/', async (req, res) => {
             function openComments(id) { document.getElementById('commentModal-' + id).style.display = 'flex'; }
             function closeComments(id) { document.getElementById('commentModal-' + id).style.display = 'none'; }
 
-            function viewStory(url, type) {
-                const viewer = document.getElementById('storyViewer');
-                const content = document.getElementById('storyViewerContent');
-                if (type === 'video') {
-                    content.innerHTML = '<video src="' + url + '" autoplay controls style="max-width:100%; max-height:100%;"></video>';
-                } else {
-                    content.innerHTML = '<img src="' + url + '" style="max-width:100%; max-height:100%; object-fit:contain;">';
-                }
-                viewer.style.display = 'flex';
-            }
-            function closeStory() {
-                document.getElementById('storyViewer').style.display = 'none';
-                document.getElementById('storyViewerContent').innerHTML = '';
-            }
-
             document.addEventListener("DOMContentLoaded", () => {
                 const containers = document.querySelectorAll('.video-container');
                 const observer = new IntersectionObserver((entries) => {
@@ -1018,17 +1088,10 @@ app.get('/', async (req, res) => {
         </script>
     </head>
     <body>
-        <div id="storyViewer" class="story-viewer">
-            <div class="story-viewer-close" onclick="closeStory()">✕</div>
-            <div id="storyViewerContent" style="width:100%; height:100%; display:flex; justify-content:center; align-items:center;"></div>
-        </div>
-
         <div class="top-tabs">
             <a href="/?feed=following" class="${feedType === 'following' ? 'active' : ''}">Takip edilen</a>
             <a href="/?feed=foryou" class="${feedType === 'foryou' ? 'active' : ''}">Sizin için</a>
         </div>
-
-        <div class="story-bar">${storiesHTML}</div>
 
         <div class="feed-scroll">
             ${feedHTML || '<div style="display:flex; justify-content:center; align-items:center; height:100vh; color:#666; text-align:center; padding:20px;">' + (feedType === 'following' ? 'Takip ettiğin kişilerin henüz videosu yok.' : 'Henüz video yok. Alttaki "+" butonuna basarak video paylaş!') + '</div>'}
