@@ -49,12 +49,17 @@ app.use(bodyParser.json());
 app.use(express.static('public'));
 app.use(session({ secret: 'tiktok-cloud-key', resave: false, saveUninitialized: true }));
 
-function getNavbar(activeTab, username) {
+// İSTEDİĞİN ALT MENÜ: Ana sayfa ve Arkadaşlar yan yana, sonra +, Gelen kutusu ve Profil
+function getNavbar(activeTab, username, isFriendsTab) {
     return `
     <div class="tiktok-nav">
-        <a href="/" class="${activeTab === 'home' ? 'active' : ''}">
+        <a href="/" class="${(activeTab === 'home' && !isFriendsTab) ? 'active' : ''}">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L3 9v11h6v-6h6v6h6V9l-9-7z"/></svg>
             <span>Ana sayfa</span>
+        </a>
+        <a href="/?feed=friends" class="${(activeTab === 'home' && isFriendsTab) ? 'active' : ''}">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
+            <span>Arkadaşlar</span>
         </a>
         <a href="/upload-page" class="plus-btn">
             <div class="plus-icon">+</div>
@@ -129,7 +134,7 @@ app.get('/upload-story-page', (req, res) => {
             <button type="submit" style="background:#FE2C55; color:#fff; padding:12px; border:none; border-radius:6px; font-weight:bold; cursor:pointer;">Paylaş</button>
             <a href="/inbox" style="text-align:center; color:#888; font-size:13px;">İptal</a>
         </form>
-        ${getNavbar('inbox', req.session.user.username)}
+        ${getNavbar('inbox', req.session.user.username, false)}
     </body>
     </html>`);
 });
@@ -216,7 +221,7 @@ app.get('/upload-page', (req, res) => {
                 xhr.send(formData);
             }
         </script>
-        ${getNavbar('home', req.session.user.username)}
+        ${getNavbar('home', req.session.user.username, false)}
     </body>
     </html>`);
 });
@@ -230,19 +235,21 @@ app.post('/upload', upload.single('video'), async (req, res) => {
     } catch (err) { res.status(500).send("Hata: " + err.message); }
 });
 
-app.post('/comment/:id', upload.single('image'), async (req, res) => {
+// YORUM EKLEME (KESİN ÇALIŞAN SAF YORUM MANTIĞI)
+app.post('/comment/:id', async (req, res) => {
     if (!req.session.user || !isConnected) return res.redirect('/');
     try {
-        let imageUrl = req.file ? `/uploads/${req.file.filename}` : '';
-        await commentsCol.insertOne({ 
-            video_id: new ObjectId(req.params.id), 
-            username: req.session.user.username, 
-            nickname: req.session.user.nickname,
-            avatar: req.session.user.avatar || '',
-            comment: req.body.comment || '', 
-            image: imageUrl, 
-            createdAt: new Date() 
-        });
+        const commentText = (req.body.comment || '').trim();
+        if (commentText) {
+            await commentsCol.insertOne({ 
+                video_id: new ObjectId(req.params.id), 
+                username: req.session.user.username, 
+                nickname: req.session.user.nickname,
+                avatar: req.session.user.avatar || '',
+                comment: commentText, 
+                createdAt: new Date() 
+            });
+        }
     } catch (err) { console.error(err); }
     res.redirect('back');
 });
@@ -278,7 +285,6 @@ app.get('/like/:id', async (req, res) => {
     res.redirect('back');
 });
 
-// FAVORİ EKLENDİ / ÇIKARILDI (1 KEZ SINIRLAMASI)
 app.get('/favorite/:id', async (req, res) => {
     if (!req.session.user || !isConnected) return res.redirect('/');
     const videoId = new ObjectId(req.params.id);
@@ -413,7 +419,7 @@ app.get('/profile/:username', async (req, res) => {
                 </form>
             </div>
         </div>
-        ${getNavbar('profile', req.session.user.username)}
+        ${getNavbar('profile', req.session.user.username, false)}
     </body>
     </html>`);
 });
@@ -614,7 +620,7 @@ app.get('/inbox', async (req, res) => {
         <div class="story-inbox-bar">${storiesHTML}</div>
         <h3 style="padding:15px; margin:0;">Mesajlar</h3>
         ${userListHTML}
-        ${getNavbar('inbox', req.session.user.username)}
+        ${getNavbar('inbox', req.session.user.username, false)}
     </body>
     </html>`);
 });
@@ -711,7 +717,7 @@ app.post('/send-msg/:targetUser', async (req, res) => {
     res.redirect('back');
 });
 
-// ANA SAYFA - "ARKADAŞLAR" SEKMESİ VE YORUM KUTUSU İLAVESİ
+// ANA SAYFA - ÜSTTE TOPLULUK, TAKİPTE, SİZİN İÇİN / ALTTA ANA SAYFA VE ARKADAŞLAR
 app.get('/', async (req, res) => {
     if (!req.session.user) {
         return res.send(`
@@ -779,8 +785,8 @@ app.get('/', async (req, res) => {
     let videos = [];
 
     if (isConnected) {
-        if (feedType === 'friends') {
-            // Sadece takip edilen kişilerin (arkadaşların) videoları
+        if (feedType === 'community' || feedType === 'friends') {
+            // Topluluk veya Arkadaşlar seçildiyse takip edilenlerin videoları gösterilir
             const follows = await followsCol.find({ follower_id: new ObjectId(req.session.user._id) }).toArray();
             const followingIds = follows.map(f => f.following_id);
             videos = await videosCol.find({ user_id: { $in: followingIds } }).sort({ _id: -1 }).toArray();
@@ -800,8 +806,7 @@ app.get('/', async (req, res) => {
                 <div class="comment-avatar">${commenterAvatar}</div>
                 <div class="comment-content">
                     <div class="comment-author">${c.nickname || c.username}</div>
-                    ${c.comment ? `<div class="comment-text">${c.comment}</div>` : ''}
-                    ${c.image ? `<img src="${c.image}" class="comment-sticker">` : ''}
+                    <div class="comment-text">${c.comment}</div>
                 </div>
             </div>`;
         });
@@ -824,7 +829,7 @@ app.get('/', async (req, res) => {
                 <a href="/share/${v._id}" onclick="alert('Kopyalandı!');" class="action-btn">↗️<span>${v.shares}</span></a>
             </div>
 
-            <!-- YORUM MODALI (YAZI + FOTOĞRAF + GÖNDER BUTONU İLE EKSİKSİZ) -->
+            <!-- KESİN ÇALIŞAN, TERTEMİZ YORUM YAZMA PENCERESİ -->
             <div id="commentModal-${v._id}" class="comment-modal">
                 <div class="comment-modal-header">
                     <span>${comments.length} yorum</span>
@@ -833,11 +838,9 @@ app.get('/', async (req, res) => {
                 <div class="comment-scroll-area">
                     ${commentList || '<div style="text-align:center; color:#888; margin-top:20px; font-size:14px;">Henüz yorum yok. İlk yorumu sen yap!</div>'}
                 </div>
-                <form action="/comment/${v._id}" method="POST" enctype="multipart/form-data" class="comment-input-form" autocomplete="off">
-                    <input type="text" name="comment" placeholder="Yorum ekleyin..." style="flex-grow:1; padding:10px 14px; background:#f1f1f2; border:none; border-radius:20px; outline:none; font-size:14px; color:#000;">
-                    <input type="file" name="image" accept="image/*" style="display:none;" id="img-${v._id}">
-                    <label for="img-${v._id}" style="cursor:pointer; font-size:20px;">🖼️</label>
-                    <button type="submit" style="background:#FE2C55; color:#fff; border:none; padding:8px 14px; border-radius:20px; font-weight:bold; cursor:pointer; font-size:13px;">Gönder</button>
+                <form action="/comment/${v._id}" method="POST" class="comment-input-form" autocomplete="off">
+                    <input type="text" name="comment" placeholder="Yorum ekleyin..." required style="flex-grow:1; padding:10px 14px; background:#f1f1f2; border:none; border-radius:20px; outline:none; font-size:14px; color:#000;">
+                    <button type="submit" style="background:#FE2C55; color:#fff; border:none; padding:8px 16px; border-radius:20px; font-weight:bold; cursor:pointer; font-size:13px;">Gönder</button>
                 </form>
             </div>
         </div>`;
@@ -856,6 +859,7 @@ app.get('/', async (req, res) => {
             .top-tabs a.active { color: #fff; border-bottom: 2px solid #fff; padding-bottom: 4px; }
             
             .top-search-btn { position: fixed; top: 10px; right: 15px; z-index: 1005; color: #fff; font-size: 20px; display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 50%; background: rgba(0,0,0,0.3); }
+            .top-live-btn { position: fixed; top: 10px; left: 15px; z-index: 1005; color: #fff; font-size: 18px; display: flex; align-items: center; justify-content: center; }
             
             .feed-scroll { height: 100vh; overflow-y: scroll; scroll-snap-type: y mandatory; -webkit-overflow-scrolling: touch; }
             .video-container { width: 100vw; height: 100vh; scroll-snap-align: start; position: relative; display: flex; justify-content: center; align-items: center; background: #000; }
@@ -875,7 +879,6 @@ app.get('/', async (req, res) => {
             .comment-avatar { width: 32px; height: 32px; background: #eee; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; flex-shrink: 0; overflow:hidden; font-weight:bold; }
             .comment-author { font-size: 12px; font-weight: bold; color: #666; }
             .comment-text { font-size: 13px; color: #111; margin-top: 2px; }
-            .comment-sticker { max-width: 120px; border-radius: 6px; margin-top: 4px; display: block; }
             
             .comment-input-form { padding: 10px 15px; border-top: 1px solid #f1f1f2; display: flex; gap: 10px; background: #ffffff; align-items: center; flex-shrink: 0; }
         </style>
@@ -911,10 +914,11 @@ app.get('/', async (req, res) => {
         </script>
     </head>
     <body>
+        <div class="top-live-btn">📡</div>
         <div class="top-tabs">
-            <a href="/?feed=friends" class="${feedType === 'friends' ? 'active' : ''}">Arkadaşlar</a>
-            <a href="/?feed=following" class="${feedType === 'following' ? 'active' : ''}">Takip edilen</a>
-            <a href="/?feed=foryou" class="${feedType === 'foryou' ? 'active' : ''}">Sizin için</a>
+            <a href="/?feed=community" class="${feedType === 'community' ? 'active' : ''}">Topluluk</a>
+            <a href="/?feed=following" class="${feedType === 'following' ? 'active' : ''}">Takipte</a>
+            <a href="/?feed=foryou" class="${feedType === 'foryou' ? 'active' : ''}">Sizin İçin</a>
         </div>
 
         <a href="/search" class="top-search-btn">🔍</a>
@@ -922,7 +926,7 @@ app.get('/', async (req, res) => {
         <div class="feed-scroll">
             ${feedHTML || '<div style="display:flex; justify-content:center; align-items:center; height:100vh; color:#666;">Hiç video bulunamadı.</div>'}
         </div>
-        ${getNavbar('home', req.session.user.username)}
+        ${getNavbar('home', req.session.user.username, feedType === 'friends')}
     </body>
     </html>
     `);
