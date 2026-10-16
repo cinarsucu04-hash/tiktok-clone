@@ -91,6 +91,10 @@ const globalStyles = `
     .tiktok-nav a.active { color: #fff; }
     .plus-btn { position: relative; top: -5px; }
     .plus-icon { width: 40px; height: 26px; background: linear-gradient(90deg, #25F4EE 0%, #FE2C55 100%); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: #000; font-size: 22px; font-weight: bold; }
+    
+    .progress-overlay { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.85); z-index: 9999; flex-direction: column; justify-content: center; align-items: center; text-align: center; }
+    .progress-bar-bg { width: 80%; max-width: 300px; height: 12px; background: #333; border-radius: 6px; overflow: hidden; margin-top: 15px; }
+    .progress-bar-fill { width: 0%; height: 100%; background: #FE2C55; transition: width 0.2s ease; }
 `;
 
 app.post('/register', async (req, res) => {
@@ -141,7 +145,7 @@ app.get('/logout', (req, res) => {
     req.session.destroy(() => res.redirect('/'));
 });
 
-// Hikaye Ekleme Sayfası
+// Hikaye Yükleme Sayfası
 app.get('/upload-story-page', (req, res) => {
     if (!req.session.user) return res.redirect('/');
     res.send(`
@@ -160,15 +164,58 @@ app.get('/upload-story-page', (req, res) => {
         </style>
     </head>
     <body>
+        <div class="progress-overlay" id="progressOverlay">
+            <h3>Hikaye Yükleniyor...</h3>
+            <div id="percentText" style="font-size:20px; font-weight:bold; color:#FE2C55;">0%</div>
+            <div class="progress-bar-bg">
+                <div class="progress-bar-fill" id="progressBarFill"></div>
+            </div>
+        </div>
+
         <div class="container">
             <h2 style="margin-bottom: 20px;">Yeni Hikaye Paylaş</h2>
-            <form action="/upload-story" method="POST" enctype="multipart/form-data" class="form-box">
+            <form id="storyForm" class="form-box">
                 <label style="font-size: 13px; color: #aaa;">Fotoğraf veya Video Seç:</label>
-                <input type="file" name="media" accept="image/*,video/*" required>
+                <input type="file" id="storyMedia" name="media" accept="image/*,video/*" required>
                 <button type="submit" class="btn">Hikayeye Ekle</button>
                 <a href="/" style="text-align: center; color: #888; font-size: 13px; margin-top: 5px;">İptal</a>
             </form>
         </div>
+
+        <script>
+            document.getElementById('storyForm').addEventListener('submit', function(e) {
+                e.preventDefault();
+                const fileInput = document.getElementById('storyMedia');
+                if(!fileInput.files.length) return;
+
+                const formData = new FormData();
+                formData.append('media', fileInput.files[0]);
+
+                const xhr = new XMLHttpRequest();
+                xhr.open('POST', '/upload-story', true);
+
+                document.getElementById('progressOverlay').style.display = 'flex';
+
+                xhr.upload.onprogress = function(e) {
+                    if (e.lengthComputable) {
+                        const percent = Math.round((e.loaded / e.total) * 100);
+                        document.getElementById('progressBarFill').style.width = percent + '%';
+                        document.getElementById('percentText').innerText = percent + '%';
+                    }
+                };
+
+                xhr.onload = function() {
+                    if (xhr.status === 200) {
+                        window.location.href = '/';
+                    } else {
+                        alert('Yükleme hatası oluştu!');
+                        document.getElementById('progressOverlay').style.display = 'none';
+                    }
+                };
+
+                xhr.send(formData);
+            });
+        </script>
         ${getNavbar('home', req.session.user.username)}
     </body>
     </html>
@@ -176,22 +223,23 @@ app.get('/upload-story-page', (req, res) => {
 });
 
 app.post('/upload-story', upload.single('media'), async (req, res) => {
-    if (!req.session.user || !isConnected) return res.redirect('/');
+    if (!req.session.user || !isConnected) return res.status(500).send("Baglanti yok");
     try {
-        if (!req.file) return res.redirect('/');
-        const cloudRes = await uploadToCloudinary(req.file.buffer, req.file.mimetype.startsWith('video') ? 'video' : 'image');
+        if (!req.file) return res.status(400).send("Dosya yok");
+        const isVideo = req.file.mimetype.startsWith('video');
+        const cloudRes = await uploadToCloudinary(req.file.buffer, isVideo ? 'video' : 'image');
         
         await storiesCol.insertOne({
             user_id: new ObjectId(req.session.user._id),
             username: req.session.user.username,
             mediaUrl: cloudRes.secure_url,
-            mediaType: req.file.mimetype.startsWith('video') ? 'video' : 'image',
+            mediaType: isVideo ? 'video' : 'image',
             createdAt: new Date()
         });
-        res.redirect('/');
+        res.status(200).send("OK");
     } catch (err) {
         console.error("Hikaye yükleme hatası:", err);
-        res.redirect('/');
+        res.status(500).send("Hata");
     }
 });
 
@@ -204,7 +252,7 @@ app.get('/delete-video/:id', async (req, res) => {
         if (video && video.user_id.toString() === req.session.user._id.toString()) {
             await videosCol.deleteOne({ _id: videoId });
             await commentsCol.deleteMany({ video_id: videoId });
-            await likesCol.deleteMany({ video_id: videoId });
+            await likesCol.deleteMany({ user_id: videoId });
         }
     } catch (err) {
         console.error("Video silme hatası:", err);
@@ -307,7 +355,7 @@ app.get('/search', async (req, res) => {
     `);
 });
 
-// Video Yükleme Sayfası
+// Video Yükleme Sayfası (% Yüzde Barı İle)
 app.get('/upload-page', (req, res) => {
     if (!req.session.user) return res.redirect('/');
     res.send(`
@@ -328,17 +376,62 @@ app.get('/upload-page', (req, res) => {
         </style>
     </head>
     <body>
+        <div class="progress-overlay" id="progressOverlay">
+            <h3>Video Yükleniyor...</h3>
+            <div id="percentText" style="font-size:24px; font-weight:bold; color:#FE2C55;">0%</div>
+            <div class="progress-bar-bg">
+                <div class="progress-bar-fill" id="progressBarFill"></div>
+            </div>
+        </div>
+
         <div class="editor-container">
             <div class="top-bar">
-                <div class="sound-badge">🎵 <input type="text" name="song" form="uploadForm" value="Orijinal Ses - ${req.session.user.nickname}" style="background:transparent; border:none; color:#fff; font-size:12px; outline:none;"></div>
+                <div class="sound-badge">🎵 <input type="text" id="songInput" name="song" value="Orijinal Ses - ${req.session.user.nickname}" style="background:transparent; border:none; color:#fff; font-size:12px; outline:none;"></div>
             </div>
-            <form id="uploadForm" action="/upload" method="POST" enctype="multipart/form-data" class="form-box">
-                <input type="text" name="caption" placeholder="Açıklama ekle, #etiketle..." required>
+            <form id="videoForm" class="form-box">
+                <input type="text" id="captionInput" name="caption" placeholder="Açıklama ekle, #etiketle..." required>
                 <label style="font-size: 12px; color: #aaa;">Galeriden Video Seç:</label>
-                <input type="file" name="video" accept="video/*" required>
+                <input type="file" id="videoFileInput" name="video" accept="video/*" required>
                 <button type="submit" class="publish-btn">Paylaş</button>
             </form>
         </div>
+
+        <script>
+            document.getElementById('videoForm').addEventListener('submit', function(e) {
+                e.preventDefault();
+                const fileInput = document.getElementById('videoFileInput');
+                if(!fileInput.files.length) return;
+
+                const formData = new FormData();
+                formData.append('video', fileInput.files[0]);
+                formData.append('caption', document.getElementById('captionInput').value);
+                formData.append('song', document.getElementById('songInput').value);
+
+                const xhr = new XMLHttpRequest();
+                xhr.open('POST', '/upload', true);
+
+                document.getElementById('progressOverlay').style.display = 'flex';
+
+                xhr.upload.onprogress = function(e) {
+                    if (e.lengthComputable) {
+                        const percent = Math.round((e.loaded / e.total) * 100);
+                        document.getElementById('progressBarFill').style.width = percent + '%';
+                        document.getElementById('percentText').innerText = percent + '%';
+                    }
+                };
+
+                xhr.onload = function() {
+                    if (xhr.status === 200) {
+                        window.location.href = '/';
+                    } else {
+                        alert('Video yükleme hatası oluştu!');
+                        document.getElementById('progressOverlay').style.display = 'none';
+                    }
+                };
+
+                xhr.send(formData);
+            });
+        </script>
         ${getNavbar('home', req.session.user.username)}
     </body>
     </html>
@@ -346,9 +439,9 @@ app.get('/upload-page', (req, res) => {
 });
 
 app.post('/upload', upload.single('video'), async (req, res) => {
-    if (!req.session.user || !isConnected) return res.redirect('/');
+    if (!req.session.user || !isConnected) return res.status(500).send("Baglanti yok");
     try {
-        if (!req.file) return res.redirect('/');
+        if (!req.file) return res.status(400).send("Video yok");
         const cloudRes = await uploadToCloudinary(req.file.buffer, 'video');
         const { caption, song } = req.body;
 
@@ -362,10 +455,10 @@ app.post('/upload', upload.single('video'), async (req, res) => {
             favorites: 0,
             shares: 0
         });
-        res.redirect('/');
+        res.status(200).send("OK");
     } catch (err) {
         console.error("Video yükleme hatası:", err);
-        res.redirect('/');
+        res.status(500).send("Hata");
     }
 });
 
@@ -625,7 +718,7 @@ app.get('/inbox', (req, res) => {
     `);
 });
 
-// Ana Sayfa (Hikayeler, Sekmeler ve Tam Ekran Akış)
+// Ana Sayfa (Hikayeler, Takip Edilen / Sizin İçin Akışı)
 app.get('/', async (req, res) => {
     if (!req.session.user) {
         return res.send(`
@@ -691,10 +784,22 @@ app.get('/', async (req, res) => {
         `);
     }
 
-    const videos = isConnected ? await videosCol.find({}).sort({ _id: -1 }).toArray() : [];
+    const feedType = req.query.feed || 'foryou';
+    let videos = [];
+
+    if (isConnected) {
+        if (feedType === 'following') {
+            const followings = await followsCol.find({ follower_id: new ObjectId(req.session.user._id) }).toArray();
+            const followingIds = followings.map(f => f.following_id);
+            followingIds.push(new ObjectId(req.session.user._id));
+            videos = await videosCol.find({ user_id: { $in: followingIds } }).sort({ _id: -1 }).toArray();
+        } else {
+            videos = await videosCol.find({}).sort({ _id: -1 }).toArray();
+        }
+    }
+
     const stories = isConnected ? await storiesCol.find({}).sort({ _id: -1 }).toArray() : [];
 
-    // Hikaye çubuğu HTML
     let storiesHTML = `
     <div class="story-item" onclick="window.location='/upload-story-page'">
         <div class="story-ring plus">+</div>
@@ -702,9 +807,13 @@ app.get('/', async (req, res) => {
     </div>`;
 
     stories.forEach(s => {
+        let mediaTag = s.mediaType === 'video' 
+            ? `<video src="${s.mediaUrl}" style="width:100%; height:100%; border-radius:50%; object-fit:cover;"></video>`
+            : `<img src="${s.mediaUrl}" style="width:100%; height:100%; border-radius:50%; object-fit:cover;">`;
+
         storiesHTML += `
-        <div class="story-item">
-            <div class="story-ring"><img src="${s.mediaUrl}" style="width:100%; height:100%; border-radius:50%; object-fit:cover;"></div>
+        <div class="story-item" onclick="viewStory('${s.mediaUrl}', '${s.mediaType}')">
+            <div class="story-ring">${mediaTag}</div>
             <span>@${s.username}</span>
         </div>`;
     });
@@ -756,18 +865,18 @@ app.get('/', async (req, res) => {
         <style>
             ${globalStyles}
             body { overflow: hidden; }
-            .top-tabs { position: fixed; top: 0; left: 0; width: 100%; height: 45px; background: rgba(0,0,0,0.4); backdrop-filter: blur(10px); display: flex; justify-content: center; align-items: center; gap: 20px; z-index: 1000; font-size: 15px; font-weight: bold; color: #aaa; }
-            .top-tabs .active { color: #fff; border-bottom: 2px solid #fff; padding-bottom: 4px; }
+            .top-tabs { position: fixed; top: 0; left: 0; width: 100%; height: 45px; background: rgba(0,0,0,0.5); backdrop-filter: blur(10px); display: flex; justify-content: center; align-items: center; gap: 25px; z-index: 1000; font-size: 15px; font-weight: bold; color: #aaa; }
+            .top-tabs a { color: #aaa; text-decoration: none; }
+            .top-tabs a.active { color: #fff; border-bottom: 2px solid #fff; padding-bottom: 4px; }
             .story-bar { position: fixed; top: 45px; left: 0; width: 100%; background: #000; display: flex; gap: 12px; padding: 10px 15px; overflow-x: auto; z-index: 999; border-bottom: 1px solid #1a1a1a; scrollbar-width: none; }
             .story-bar::-webkit-scrollbar { display: none; }
             .story-item { display: flex; flex-direction: column; align-items: center; gap: 4px; cursor: pointer; flex-shrink: 0; }
-            .story-ring { width: 56px; height: 56px; border-radius: 50%; background: linear-gradient(135deg, #25F4EE, #FE2C55); padding: 2px; display: flex; align-items: center; justify-content: center; }
+            .story-ring { width: 56px; height: 56px; border-radius: 50%; background: linear-gradient(135deg, #25F4EE, #FE2C55); padding: 2px; display: flex; align-items: center; justify-content: center; overflow: hidden; }
             .story-ring.plus { background: #333; font-size: 24px; color: #fff; }
-            .story-ring img { background: #000; }
             .story-item span { font-size: 11px; color: #ccc; max-width: 60px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
             
-            .feed-scroll { height: calc(100vh - 100px); margin-top: 100px; overflow-y: scroll; scroll-snap-type: y mandatory; }
-            .video-container { width: 100vw; height: calc(100vh - 100px); scroll-snap-align: start; position: relative; display: flex; justify-content: center; align-items: center; background: #000; }
+            .feed-scroll { height: calc(100vh - 120px); margin-top: 120px; overflow-y: scroll; scroll-snap-type: y mandatory; }
+            .video-container { width: 100vw; height: calc(100vh - 120px); scroll-snap-align: start; position: relative; display: flex; justify-content: center; align-items: center; background: #000; }
             video { width: 100%; height: 100%; object-fit: cover; position: absolute; top: 0; left: 0; }
             .video-info { position: absolute; bottom: 20px; left: 15px; z-index: 10; max-width: 70%; }
             .sidebar-actions { position: absolute; bottom: 30px; right: 15px; z-index: 10; display: flex; flex-direction: column; gap: 12px; align-items: center; }
@@ -780,6 +889,9 @@ app.get('/', async (req, res) => {
             .comment-box input { width: 100%; padding: 10px; background: #2f2f2f; border: none; color: #fff; border-radius: 6px; box-sizing: border-box; }
             .comment-btn { background: #FE2C55; color: #fff; border: none; padding: 8px; border-radius: 6px; font-weight: bold; margin-top: 5px; cursor: pointer; width: 100%; }
             .close-comment { background: #333; color: #fff; border: none; padding: 6px; border-radius: 6px; margin-top: 5px; cursor: pointer; width: 100%; }
+
+            .story-viewer { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: #000; z-index: 9000; justify-content: center; align-items: center; }
+            .story-viewer-close { position: absolute; top: 20px; right: 20px; font-size: 24px; color: #fff; cursor: pointer; z-index: 9001; }
         </style>
         <script>
             function toggleSound(id, btn) {
@@ -795,12 +907,32 @@ app.get('/', async (req, res) => {
             }
             function openComments(id) { document.getElementById('commentModal-' + id).style.display = 'flex'; }
             function closeComments(id) { document.getElementById('commentModal-' + id).style.display = 'none'; }
+
+            function viewStory(url, type) {
+                const viewer = document.getElementById('storyViewer');
+                const content = document.getElementById('storyViewerContent');
+                if (type === 'video') {
+                    content.innerHTML = '<video src="' + url + '" autoplay controls style="max-width:100%; max-height:100%;"></video>';
+                } else {
+                    content.innerHTML = '<img src="' + url + '" style="max-width:100%; max-height:100%; object-fit:contain;">';
+                }
+                viewer.style.display = 'flex';
+            }
+            function closeStory() {
+                document.getElementById('storyViewer').style.display = 'none';
+                document.getElementById('storyViewerContent').innerHTML = '';
+            }
         </script>
     </head>
     <body>
+        <div id="storyViewer" class="story-viewer">
+            <div class="story-viewer-close" onclick="closeStory()">✕</div>
+            <div id="storyViewerContent" style="width:100%; height:100%; display:flex; justify-content:center; align-items:center;"></div>
+        </div>
+
         <div class="top-tabs">
-            <span>Takip edilen</span>
-            <span class="active">Sizin için</span>
+            <a href="/?feed=following" class="${feedType === 'following' ? 'active' : ''}">Takip edilen</a>
+            <a href="/?feed=foryou" class="${feedType === 'foryou' ? 'active' : ''}">Sizin için</a>
         </div>
 
         <div class="story-bar">
@@ -808,7 +940,7 @@ app.get('/', async (req, res) => {
         </div>
 
         <div class="feed-scroll">
-            ${feedHTML || '<div style="display:flex; justify-content:center; align-items:center; height:100vh; color:#666;">Henüz video yok. Alttaki "+" butonuna basarak video paylaş!</div>'}
+            ${feedHTML || '<div style="display:flex; justify-content:center; align-items:center; height:100vh; color:#666; text-align:center; padding:20px;">' + (feedType === 'following' ? 'Takip ettiğin kişilerin henüz videosu yok.' : 'Henüz video yok. Alttaki "+" butonuna basarak video paylaş!') + '</div>'}
         </div>
         ${getNavbar('home', req.session.user.username)}
     </body>
