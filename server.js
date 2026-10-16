@@ -12,7 +12,7 @@ const PORT = process.env.PORT || 3000;
 
 const MONGO_URL = process.env.MONGO_URL || "mongodb+srv://cinarsucu04_db_user:46vjLI7sNK7djBeE@cluster0.utveet0.mongodb.net/?retryWrites=true&w=majority";
 
-let db, usersCol, videosCol, commentsCol, followsCol, likesCol, storiesCol, messagesCol, searchesCol;
+let db, usersCol, videosCol, commentsCol, followsCol, likesCol, favoritesCol, storiesCol, messagesCol, searchesCol;
 let isConnected = false;
 
 MongoClient.connect(MONGO_URL)
@@ -23,6 +23,7 @@ MongoClient.connect(MONGO_URL)
         commentsCol = db.collection('comments');
         followsCol = db.collection('follows');
         likesCol = db.collection('likes');
+        favoritesCol = db.collection('favorites');
         storiesCol = db.collection('stories');
         messagesCol = db.collection('messages');
         searchesCol = db.collection('searches');
@@ -48,7 +49,6 @@ app.use(bodyParser.json());
 app.use(express.static('public'));
 app.use(session({ secret: 'tiktok-cloud-key', resave: false, saveUninitialized: true }));
 
-// Alt menüden Keşfet/Ara tamamen kaldırıldı
 function getNavbar(activeTab, username) {
     return `
     <div class="tiktok-nav">
@@ -230,7 +230,6 @@ app.post('/upload', upload.single('video'), async (req, res) => {
     } catch (err) { res.status(500).send("Hata: " + err.message); }
 });
 
-// YORUM VE FOTOĞRAF BİRLİKTE KAYDETME
 app.post('/comment/:id', upload.single('image'), async (req, res) => {
     if (!req.session.user || !isConnected) return res.redirect('/');
     try {
@@ -257,6 +256,7 @@ app.get('/delete-video/:id', async (req, res) => {
             await videosCol.deleteOne({ _id: videoId });
             await commentsCol.deleteMany({ video_id: videoId });
             await likesCol.deleteMany({ video_id: videoId });
+            await favoritesCol.deleteMany({ video_id: videoId });
         }
     } catch (err) { console.error(err); }
     res.redirect(`/profile/${req.session.user.username}`);
@@ -278,9 +278,20 @@ app.get('/like/:id', async (req, res) => {
     res.redirect('back');
 });
 
+// FAVORİ EKLENDİ / ÇIKARILDI (1 KEZ SINIRLAMASI)
 app.get('/favorite/:id', async (req, res) => {
     if (!req.session.user || !isConnected) return res.redirect('/');
-    await videosCol.updateOne({ _id: new ObjectId(req.params.id) }, { $inc: { favorites: 1 } });
+    const videoId = new ObjectId(req.params.id);
+    const userId = req.session.user._id;
+
+    const existingFav = await favoritesCol.findOne({ user_id: userId, video_id: videoId });
+    if (!existingFav) {
+        await favoritesCol.insertOne({ user_id: userId, video_id: videoId });
+        await videosCol.updateOne({ _id: videoId }, { $inc: { favorites: 1 } });
+    } else {
+        await favoritesCol.deleteOne({ user_id: userId, video_id: videoId });
+        await videosCol.updateOne({ _id: videoId }, { $inc: { favorites: -1 } });
+    }
     res.redirect('back');
 });
 
@@ -700,7 +711,7 @@ app.post('/send-msg/:targetUser', async (req, res) => {
     res.redirect('back');
 });
 
-// ANA SAYFA - YUKARI TAŞINMIŞ VE KÜÇÜLTÜLMÜŞ YORUM PANELİ (YAZI + FOTOĞRAF DESTEKLİ)
+// ANA SAYFA - "ARKADAŞLAR" SEKMESİ VE YORUM KUTUSU İLAVESİ
 app.get('/', async (req, res) => {
     if (!req.session.user) {
         return res.send(`
@@ -765,7 +776,18 @@ app.get('/', async (req, res) => {
     }
 
     const feedType = req.query.feed || 'foryou';
-    let videos = isConnected ? await videosCol.find({}).sort({ _id: -1 }).toArray() : [];
+    let videos = [];
+
+    if (isConnected) {
+        if (feedType === 'friends') {
+            // Sadece takip edilen kişilerin (arkadaşların) videoları
+            const follows = await followsCol.find({ follower_id: new ObjectId(req.session.user._id) }).toArray();
+            const followingIds = follows.map(f => f.following_id);
+            videos = await videosCol.find({ user_id: { $in: followingIds } }).sort({ _id: -1 }).toArray();
+        } else {
+            videos = await videosCol.find({}).sort({ _id: -1 }).toArray();
+        }
+    }
 
     let feedHTML = '';
     for (let v of videos) {
@@ -802,7 +824,7 @@ app.get('/', async (req, res) => {
                 <a href="/share/${v._id}" onclick="alert('Kopyalandı!');" class="action-btn">↗️<span>${v.shares}</span></a>
             </div>
 
-            <!-- YUKARI TAŞINMIŞ, KÜÇÜLTÜLMÜŞ VE YAZI+FOTOĞRAF DESTEKLİ YORUM MODALI -->
+            <!-- YORUM MODALI (YAZI + FOTOĞRAF + GÖNDER BUTONU İLE EKSİKSİZ) -->
             <div id="commentModal-${v._id}" class="comment-modal">
                 <div class="comment-modal-header">
                     <span>${comments.length} yorum</span>
@@ -812,7 +834,7 @@ app.get('/', async (req, res) => {
                     ${commentList || '<div style="text-align:center; color:#888; margin-top:20px; font-size:14px;">Henüz yorum yok. İlk yorumu sen yap!</div>'}
                 </div>
                 <form action="/comment/${v._id}" method="POST" enctype="multipart/form-data" class="comment-input-form" autocomplete="off">
-                    <input type="text" name="comment" placeholder="Yorum ekleyin..." required style="flex-grow:1; padding:10px 14px; background:#f1f1f2; border:none; border-radius:20px; outline:none; font-size:14px; color:#000;">
+                    <input type="text" name="comment" placeholder="Yorum ekleyin..." style="flex-grow:1; padding:10px 14px; background:#f1f1f2; border:none; border-radius:20px; outline:none; font-size:14px; color:#000;">
                     <input type="file" name="image" accept="image/*" style="display:none;" id="img-${v._id}">
                     <label for="img-${v._id}" style="cursor:pointer; font-size:20px;">🖼️</label>
                     <button type="submit" style="background:#FE2C55; color:#fff; border:none; padding:8px 14px; border-radius:20px; font-weight:bold; cursor:pointer; font-size:13px;">Gönder</button>
@@ -829,7 +851,7 @@ app.get('/', async (req, res) => {
         <style>
             ${globalStyles}
             body { overflow: hidden; }
-            .top-tabs { position: fixed; top: 0; left: 0; width: 100%; height: 45px; background: rgba(0,0,0,0.4); backdrop-filter: blur(10px); display: flex; justify-content: center; align-items: center; gap: 25px; z-index: 1000; font-size: 15px; font-weight: bold; }
+            .top-tabs { position: fixed; top: 0; left: 0; width: 100%; height: 45px; background: rgba(0,0,0,0.4); backdrop-filter: blur(10px); display: flex; justify-content: center; align-items: center; gap: 20px; z-index: 1000; font-size: 14px; font-weight: bold; }
             .top-tabs a { color: #aaa; }
             .top-tabs a.active { color: #fff; border-bottom: 2px solid #fff; padding-bottom: 4px; }
             
@@ -845,7 +867,6 @@ app.get('/', async (req, res) => {
             .action-btn { background: rgba(0,0,0,0.4); width: 42px; height: 42px; border-radius: 50%; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 16px; color: #fff; }
             .sound-toggle { position: absolute; top: 65px; right: 15px; background: rgba(0,0,0,0.6); color: #fff; padding: 6px 12px; border-radius: 15px; font-size: 12px; z-index: 15; cursor: pointer; border: 1px solid rgba(255,255,255,0.3); }
             
-            /* KÜÇÜLTÜLMÜŞ VE YUKARI TAŞINMIŞ YORUM MODALI (%45 YÜKSEKLİK) */
             .comment-modal { display: none; position: fixed; bottom: 0; left: 0; width: 100%; height: 45vh; background: #ffffff; color: #000000; z-index: 30000; border-top-left-radius: 16px; border-top-right-radius: 16px; flex-direction: column; box-shadow: 0 -5px 25px rgba(0,0,0,0.3); }
             .comment-modal-header { padding: 12px 15px; border-bottom: 1px solid #f1f1f2; display: flex; justify-content: center; align-items: center; font-weight: bold; font-size: 15px; position: relative; flex-shrink: 0; }
             .comment-close-btn { position: absolute; right: 15px; cursor: pointer; font-size: 18px; color: #000; }
@@ -891,6 +912,7 @@ app.get('/', async (req, res) => {
     </head>
     <body>
         <div class="top-tabs">
+            <a href="/?feed=friends" class="${feedType === 'friends' ? 'active' : ''}">Arkadaşlar</a>
             <a href="/?feed=following" class="${feedType === 'following' ? 'active' : ''}">Takip edilen</a>
             <a href="/?feed=foryou" class="${feedType === 'foryou' ? 'active' : ''}">Sizin için</a>
         </div>
@@ -898,7 +920,7 @@ app.get('/', async (req, res) => {
         <a href="/search" class="top-search-btn">🔍</a>
 
         <div class="feed-scroll">
-            ${feedHTML || '<div style="display:flex; justify-content:center; align-items:center; height:100vh; color:#666;">Henüz video yok. Alttaki "+" butonundan paylaş!</div>'}
+            ${feedHTML || '<div style="display:flex; justify-content:center; align-items:center; height:100vh; color:#666;">Hiç video bulunamadı.</div>'}
         </div>
         ${getNavbar('home', req.session.user.username)}
     </body>
