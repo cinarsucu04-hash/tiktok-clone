@@ -49,7 +49,6 @@ app.use(bodyParser.json());
 app.use(express.static('public'));
 app.use(session({ secret: 'tiktok-cloud-key', resave: false, saveUninitialized: true }));
 
-// İSTEDİĞİN ALT MENÜ: Ana sayfa ve Arkadaşlar yan yana, sonra +, Gelen kutusu ve Profil
 function getNavbar(activeTab, username, isFriendsTab) {
     return `
     <div class="tiktok-nav">
@@ -235,7 +234,6 @@ app.post('/upload', upload.single('video'), async (req, res) => {
     } catch (err) { res.status(500).send("Hata: " + err.message); }
 });
 
-// YORUM EKLEME (KESİN ÇALIŞAN SAF YORUM MANTIĞI)
 app.post('/comment/:id', async (req, res) => {
     if (!req.session.user || !isConnected) return res.redirect('/');
     try {
@@ -717,7 +715,7 @@ app.post('/send-msg/:targetUser', async (req, res) => {
     res.redirect('back');
 });
 
-// ANA SAYFA - ÜSTTE TOPLULUK, TAKİPTE, SİZİN İÇİN / ALTTA ANA SAYFA VE ARKADAŞLAR
+// ANA SAYFA - BÜYÜTÜLMÜŞ YORUM PANELİ VE YANITLA (CEVAP VER) ÖZELLİĞİ
 app.get('/', async (req, res) => {
     if (!req.session.user) {
         return res.send(`
@@ -786,7 +784,6 @@ app.get('/', async (req, res) => {
 
     if (isConnected) {
         if (feedType === 'community' || feedType === 'friends') {
-            // Topluluk veya Arkadaşlar seçildiyse takip edilenlerin videoları gösterilir
             const follows = await followsCol.find({ follower_id: new ObjectId(req.session.user._id) }).toArray();
             const followingIds = follows.map(f => f.following_id);
             videos = await videosCol.find({ user_id: { $in: followingIds } }).sort({ _id: -1 }).toArray();
@@ -804,9 +801,10 @@ app.get('/', async (req, res) => {
             commentList += `
             <div class="comment-item">
                 <div class="comment-avatar">${commenterAvatar}</div>
-                <div class="comment-content">
+                <div class="comment-content" style="flex-grow:1;">
                     <div class="comment-author">${c.nickname || c.username}</div>
                     <div class="comment-text">${c.comment}</div>
+                    <div style="font-size:11px; color:#888; margin-top:4px; cursor:pointer;" onclick="replyToUser('${v._id}', '${c.nickname || c.username}')">Yanıtla</div>
                 </div>
             </div>`;
         });
@@ -829,18 +827,18 @@ app.get('/', async (req, res) => {
                 <a href="/share/${v._id}" onclick="alert('Kopyalandı!');" class="action-btn">↗️<span>${v.shares}</span></a>
             </div>
 
-            <!-- KESİN ÇALIŞAN, TERTEMİZ YORUM YAZMA PENCERESİ -->
+            <!-- BÜYÜTÜLMÜŞ %75 YORUM PENCERESİ VE NET YAZMA ALANI -->
             <div id="commentModal-${v._id}" class="comment-modal">
                 <div class="comment-modal-header">
                     <span>${comments.length} yorum</span>
                     <span onclick="closeComments('${v._id}')" class="comment-close-btn">✕</span>
                 </div>
                 <div class="comment-scroll-area">
-                    ${commentList || '<div style="text-align:center; color:#888; margin-top:20px; font-size:14px;">Henüz yorum yok. İlk yorumu sen yap!</div>'}
+                    ${commentList || '<div style="text-align:center; color:#888; margin-top:40px; font-size:14px;">Henüz yorum yok. İlk yorumu sen yap!</div>'}
                 </div>
                 <form action="/comment/${v._id}" method="POST" class="comment-input-form" autocomplete="off">
-                    <input type="text" name="comment" placeholder="Yorum ekleyin..." required style="flex-grow:1; padding:10px 14px; background:#f1f1f2; border:none; border-radius:20px; outline:none; font-size:14px; color:#000;">
-                    <button type="submit" style="background:#FE2C55; color:#fff; border:none; padding:8px 16px; border-radius:20px; font-weight:bold; cursor:pointer; font-size:13px;">Gönder</button>
+                    <input type="text" id="commentInput-${v._id}" name="comment" placeholder="Yorum ekle..." required style="flex-grow:1; padding:12px 16px; background:#f1f1f2; border:none; border-radius:24px; outline:none; font-size:14px; color:#000;">
+                    <button type="submit" style="background:#FE2C55; color:#fff; border:none; padding:10px 18px; border-radius:24px; font-weight:bold; cursor:pointer; font-size:14px;">Gönder</button>
                 </form>
             </div>
         </div>`;
@@ -871,16 +869,17 @@ app.get('/', async (req, res) => {
             .action-btn { background: rgba(0,0,0,0.4); width: 42px; height: 42px; border-radius: 50%; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 16px; color: #fff; }
             .sound-toggle { position: absolute; top: 65px; right: 15px; background: rgba(0,0,0,0.6); color: #fff; padding: 6px 12px; border-radius: 15px; font-size: 12px; z-index: 15; cursor: pointer; border: 1px solid rgba(255,255,255,0.3); }
             
-            .comment-modal { display: none; position: fixed; bottom: 0; left: 0; width: 100%; height: 45vh; background: #ffffff; color: #000000; z-index: 30000; border-top-left-radius: 16px; border-top-right-radius: 16px; flex-direction: column; box-shadow: 0 -5px 25px rgba(0,0,0,0.3); }
-            .comment-modal-header { padding: 12px 15px; border-bottom: 1px solid #f1f1f2; display: flex; justify-content: center; align-items: center; font-weight: bold; font-size: 15px; position: relative; flex-shrink: 0; }
-            .comment-close-btn { position: absolute; right: 15px; cursor: pointer; font-size: 18px; color: #000; }
-            .comment-scroll-area { flex-grow: 1; overflow-y: auto; padding: 12px 15px; min-height: 0; background: #ffffff; }
-            .comment-item { display: flex; gap: 10px; margin-bottom: 12px; align-items: flex-start; }
-            .comment-avatar { width: 32px; height: 32px; background: #eee; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; flex-shrink: 0; overflow:hidden; font-weight:bold; }
-            .comment-author { font-size: 12px; font-weight: bold; color: #666; }
-            .comment-text { font-size: 13px; color: #111; margin-top: 2px; }
+            /* BÜYÜTÜLMÜŞ %75 YORUM MODALI VE SABİT ALT KISIM */
+            .comment-modal { display: none; position: fixed; bottom: 0; left: 0; width: 100%; height: 75vh; background: #ffffff; color: #000000; z-index: 30000; border-top-left-radius: 20px; border-top-right-radius: 20px; flex-direction: column; box-shadow: 0 -5px 25px rgba(0,0,0,0.5); }
+            .comment-modal-header { padding: 15px; border-bottom: 1px solid #f1f1f2; display: flex; justify-content: center; align-items: center; font-weight: bold; font-size: 16px; position: relative; flex-shrink: 0; }
+            .comment-close-btn { position: absolute; right: 15px; cursor: pointer; font-size: 20px; color: #000; }
+            .comment-scroll-area { flex-grow: 1; overflow-y: auto; padding: 15px; min-height: 0; background: #ffffff; }
+            .comment-item { display: flex; gap: 12px; margin-bottom: 16px; align-items: flex-start; }
+            .comment-avatar { width: 36px; height: 36px; background: #eee; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 15px; flex-shrink: 0; overflow:hidden; font-weight:bold; }
+            .comment-author { font-size: 13px; font-weight: bold; color: #555; }
+            .comment-text { font-size: 14px; color: #111; margin-top: 3px; }
             
-            .comment-input-form { padding: 10px 15px; border-top: 1px solid #f1f1f2; display: flex; gap: 10px; background: #ffffff; align-items: center; flex-shrink: 0; }
+            .comment-input-form { padding: 12px 15px; border-top: 1px solid #f1f1f2; display: flex; gap: 10px; background: #ffffff; align-items: center; flex-shrink: 0; }
         </style>
         <script>
             let globalMutedState = true;
@@ -893,6 +892,12 @@ app.get('/', async (req, res) => {
 
             function openComments(id) { document.getElementById('commentModal-' + id).style.display = 'flex'; }
             function closeComments(id) { document.getElementById('commentModal-' + id).style.display = 'none'; }
+
+            function replyToUser(videoId, nickname) {
+                const input = document.getElementById('commentInput-' + videoId);
+                input.value = '@' + nickname + ' ';
+                input.focus();
+            }
 
             document.addEventListener("DOMContentLoaded", () => {
                 const containers = document.querySelectorAll('.video-container');
