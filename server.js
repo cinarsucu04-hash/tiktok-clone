@@ -159,17 +159,6 @@ app.get('/register', (req, res) => {
     </html>`);
 });
 
-app.get('/switch-account/:id', async (req, res) => {
-    if (!isConnected) return res.redirect('/login');
-    try {
-        const targetUser = await usersCol.findOne({ _id: new ObjectId(req.params.id) });
-        if (targetUser) {
-            req.session.user = targetUser;
-        }
-    } catch (err) { console.error(err); }
-    res.redirect('/');
-});
-
 app.post('/register', async (req, res) => {
     if (!isConnected) return res.send("<script>alert('Veritabanı bağlanıyor...'); window.location='/register';</script>");
     const { username, nickname, password } = req.body;
@@ -331,7 +320,6 @@ app.get('/upload-page', (req, res) => {
             </div>
 
             <div style="display:flex; gap:10px; align-items:center; font-size:13px; color:#aaa;">
-                <label><input type="checkbox" name="aiSubtitles" value="yes" checked> AI Otomatik Altyazı</label>
                 <label><input type="checkbox" name="greenScreen" value="yes"> Yeşil Perde Arka Plan</label>
             </div>
 
@@ -402,7 +390,6 @@ app.post('/upload', upload.single('video'), async (req, res) => {
             productLink: req.body.productLink || '',
             voiceEffect: req.body.voiceEffect || 'Normal',
             videoSpeed: req.body.videoSpeed || '1.0',
-            aiSubtitles: req.body.aiSubtitles === 'yes',
             greenScreen: req.body.greenScreen === 'yes',
             views: 0,
             likes: 0, favorites: 0, shares: 0, createdAt: new Date() 
@@ -417,7 +404,6 @@ app.post('/comment/:id', upload.single('image'), async (req, res) => {
         let imageUrl = req.file ? `/uploads/${req.file.filename}` : '';
         let commentText = (req.body.comment || '').trim();
         
-        // Metin Okuma (Text-to-Speech) simülasyonu / etiketi
         if (commentText.startsWith('/tts ')) {
             commentText = '🔊 [Sesli Okuma]: ' + commentText.replace('/tts ', '');
         }
@@ -540,7 +526,6 @@ app.get('/profile/:username', async (req, res) => {
 
     let isMe = req.session.user._id.toString() === targetUser._id.toString();
 
-    // Profil ziyaretçi kaydı (Eğer kendi profili değilse ve ziyaret gizliliği kapalıysa)
     if (!isMe && !targetUser.hideVisitors) {
         await analyticsCol.updateOne(
             { profile_id: targetUser._id, visitor_username: req.session.user.username },
@@ -550,7 +535,6 @@ app.get('/profile/:username', async (req, res) => {
     }
 
     const tab = req.query.tab || 'videos'; 
-    const allUsers = await usersCol.find({}).toArray();
     
     let videos = [];
     if (tab === 'videos') {
@@ -600,24 +584,6 @@ app.get('/profile/:username', async (req, res) => {
         });
     }
 
-    let accountsHTML = '';
-    allUsers.forEach(acc => {
-        let isCurrent = acc._id.toString() === req.session.user._id.toString();
-        let accAvatar = acc.avatar ? `<img src="${acc.avatar}" style="width:100%; height:100%; border-radius:50%; object-fit:cover;">` : acc.nickname.charAt(0).toUpperCase();
-        let accVerified = acc.username.toLowerCase() === 'tiktok' ? '<span class="verified-badge">✔</span>' : '';
-        accountsHTML += `
-        <a href="/switch-account/${acc._id}" style="display:flex; align-items:center; justify-content:space-between; padding:12px 15px; border-bottom:1px solid #eee; color:#000;">
-            <div style="display:flex; align-items:center; gap:12px;">
-                <div style="width:40px; height:40px; background:#FE2C55; border-radius:50%; display:flex; align-items:center; justify-content:center; color:#fff; font-weight:bold; overflow:hidden;">${accAvatar}</div>
-                <div>
-                    <div style="font-weight:bold; font-size:15px;">${acc.nickname} ${accVerified}</div>
-                    <div style="font-size:12px; color:#888;">@${acc.username}</div>
-                </div>
-            </div>
-            ${isCurrent ? '<span style="color:#FE2C55; font-size:20px; font-weight:bold;">✓</span>' : '<span style="font-size:12px; color:#25F4EE; font-weight:bold;">Geçiş Yap</span>'}
-        </a>`;
-    });
-
     let bannerBg = targetUser.banner ? `url('${targetUser.banner}')` : 'linear-gradient(135deg, #2b2b2b, #111)';
     let avatarHTML = targetUser.avatar ? `<img src="${targetUser.avatar}" style="width:100%; height:100%; border-radius:50%; object-fit:cover;">` : targetUser.nickname.charAt(0).toUpperCase();
     let verifiedBadgeHTML = isTargetTikTok ? '<span class="verified-badge" title="Resmi Hesap">✔</span>' : '';
@@ -646,13 +612,10 @@ app.get('/profile/:username', async (req, res) => {
             .v-thumb video { width: 100%; height: 100%; object-fit: cover; }
             .thumb-stats { position: absolute; bottom: 5px; left: 5px; font-size: 11px; font-weight: bold; text-shadow: 0 1px 2px #000; }
             
-            .account-switcher-modal, .settings-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 300000; justify-content: center; align-items: flex-end; }
-            .account-switcher-content, .settings-content { background: #1a1a1a; color: #fff; width: 100%; max-height: 80vh; border-top-left-radius: 16px; border-top-right-radius: 16px; display: flex; flex-direction: column; overflow: hidden; }
+            .settings-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 300000; justify-content: center; align-items: flex-end; }
+            .settings-content { background: #1a1a1a; color: #fff; width: 100%; max-height: 80vh; border-top-left-radius: 16px; border-top-right-radius: 16px; display: flex; flex-direction: column; overflow: hidden; }
         </style>
         <script>
-            function openAccountSwitcher() { document.getElementById('accountModal').style.display = 'flex'; }
-            function closeAccountSwitcher() { document.getElementById('accountModal').style.display = 'none'; }
-            
             function openSettingsModal() { document.getElementById('settingsModal').style.display = 'flex'; }
             function closeSettingsModal() { document.getElementById('settingsModal').style.display = 'none'; }
 
@@ -683,10 +646,7 @@ app.get('/profile/:username', async (req, res) => {
         <div class="profile-header">
             ${isMe ? '<div class="settings-btn" onclick="openSettingsModal()">⚙️</div>' : ''}
             <div class="avatar">${avatarHTML}</div>
-            <div style="display:flex; align-items:center; justify-content:center; gap:6px; cursor:pointer;" onclick="openAccountSwitcher()">
-                <h2 style="margin:5px 0;">${targetUser.nickname} ${verifiedBadgeHTML}</h2>
-                <span style="font-size:14px; color:#aaa;">▼</span>
-            </div>
+            <h2 style="margin:5px 0;">${targetUser.nickname} ${verifiedBadgeHTML}</h2>
             <p style="color:#888; margin:0; font-size:13px;">@${targetUser.username}</p>
             <div class="stats">
                 <div><span>${followingCount}</span>Takip edilen</div>
@@ -718,7 +678,6 @@ app.get('/profile/:username', async (req, res) => {
             </div>
         </div>
 
-        <!-- AYARLAR MODALI (ÖZELLİK YÖNETİMİ) -->
         <div id="settingsModal" class="settings-modal">
             <div class="settings-content">
                 <div style="padding:15px; border-bottom:1px solid #333; display:flex; justify-content:space-between; align-items:center; font-weight:bold; font-size:16px;">
@@ -728,7 +687,6 @@ app.get('/profile/:username', async (req, res) => {
                 <div style="overflow-y:auto; padding:15px; display:flex; flex-direction:column; gap:12px; font-size:14px;">
                     <div style="background:#262626; padding:12px; border-radius:8px;">🎤 Ses Modülatörü (Robot, Sincap, Bas) Aktif</div>
                     <div style="background:#262626; padding:12px; border-radius:8px;">👥 Düet (Duet) ve Stitch Altyapısı Hazır</div>
-                    <div style="background:#262626; padding:12px; border-radius:8px;">🤖 AI Otomatik Altyazı Motoru Çalışıyor</div>
                     <div style="background:#262626; padding:12px; border-radius:8px;">⏱️ Geri Sayım ve Zamanlayıcı Modu Açık</div>
                     <div style="background:#262626; padding:12px; border-radius:8px;">🟩 Yeşil Perde (Green Screen) Arka Plan Desteği</div>
                     <div style="background:#262626; padding:12px; border-radius:8px;">📂 Koleksiyonlar ve Klasörleme Sistemi Aktif</div>
@@ -739,22 +697,6 @@ app.get('/profile/:username', async (req, res) => {
                     <div style="background:#262626; padding:12px; border-radius:8px;">🛒 E-Ticaret / Ürün Etiketleme Paneli</div>
                     <div style="background:#262626; padding:12px; border-radius:8px;">👀 Profil Ziyaret Geçmişi ve Gizliliği Yönetimi</div>
                     <div style="background:#262626; padding:12px; border-radius:8px; cursor:pointer;" onclick="document.getElementById('editModal').style.display='flex'; closeSettingsModal();">✏️ Profili ve Güvenliği Düzenle</div>
-                </div>
-            </div>
-        </div>
-
-        <div id="accountModal" class="account-switcher-modal">
-            <div class="account-switcher-content" style="color:#000;">
-                <div style="padding:15px; border-bottom:1px solid #eee; display:flex; justify-content:space-between; align-items:center; font-weight:bold; font-size:16px;">
-                    <span>Hesap değiştir</span>
-                    <span onclick="closeAccountSwitcher()" style="cursor:pointer; font-size:22px;">✕</span>
-                </div>
-                <div style="overflow-y:auto; flex-grow:1; background:#fff;">
-                    ${accountsHTML}
-                    <a href="/login" style="display:flex; align-items:center; gap:12px; padding:15px; color:#000; font-weight:bold;">
-                        <div style="width:40px; height:40px; background:#f1f1f2; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:20px;">+</div>
-                        <span>Hesap Ekle</span>
-                    </a>
                 </div>
             </div>
         </div>
@@ -1134,8 +1076,8 @@ app.get('/', async (req, res) => {
         <div class="video-container" id="container-${v._id}">
             <video id="vid-${v._id}" src="${v.filename}" loop playsinline preload="auto" class="feed-video" onclick="toggleVideoPlay('vid-${v._id}')"></video>
             
-            ${v.aiSubtitles ? `<div style="position:absolute; bottom:140px; left:50%; transform:translateX(-50%); background:rgba(0,0,0,0.7); color:#fff; padding:6px 12px; border-radius:6px; font-size:14px; font-weight:bold; pointer-events:none;">🤖 AI Altyazı: Videodaki konuşmalar burada gösteriliyor...</div>` : ''}
-            
+            <div class="sound-toggle-btn" id="soundBtn-${v._id}" onclick="toggleMute('vid-${v._id}', this)">🔊 Ses Açık</div>
+
             <div class="video-info">
                 <a href="/profile/${v.username}" style="font-weight: bold; font-size: 15px; text-shadow: 0 1px 2px #000;">@${v.username} ${authorVerified}</a>
                 <p style="margin: 5px 0; font-size: 14px; text-shadow: 0 1px 2px #000;">${formattedCaption}</p>
@@ -1191,6 +1133,8 @@ app.get('/', async (req, res) => {
             
             .feed-video { width: 100%; height: 100%; object-fit: cover; position: absolute; top: 0; left: 0; }
             
+            .sound-toggle-btn { position: absolute; top: 60px; right: 15px; background: rgba(0,0,0,0.6); color: #fff; padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: bold; cursor: pointer; z-index: 20; border: 1px solid rgba(255,255,255,0.2); }
+
             .video-info { position: absolute; bottom: 80px; left: 15px; z-index: 10; max-width: 70%; }
             .sidebar-actions { position: absolute; bottom: 90px; right: 15px; z-index: 10; display: flex; flex-direction: column; gap: 14px; align-items: center; }
             .action-btn { background: rgba(0,0,0,0.4); width: 42px; height: 42px; border-radius: 50%; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 16px; color: #fff; }
@@ -1219,6 +1163,18 @@ app.get('/', async (req, res) => {
             function toggleVideoPlay(id) {
                 const vid = document.getElementById(id);
                 if (vid.paused) { vid.play(); } else { vid.pause(); }
+            }
+
+            function toggleMute(videoId, btn) {
+                const vid = document.getElementById(videoId);
+                vid.muted = !vid.muted;
+                if (vid.muted) {
+                    btn.innerText = '🔇 Ses Kapalı';
+                    btn.style.background = 'rgba(254,44,85,0.7)';
+                } else {
+                    btn.innerText = '🔊 Ses Açık';
+                    btn.style.background = 'rgba(0,0,0,0.6)';
+                }
             }
 
             function openComments(id) { document.getElementById('commentModal-' + id).style.display = 'flex'; }
