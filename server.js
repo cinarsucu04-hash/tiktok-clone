@@ -86,43 +86,116 @@ const globalStyles = `
     .plus-icon { width: 40px; height: 26px; background: linear-gradient(90deg, #25F4EE 0%, #FE2C55 100%); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: #000; font-size: 22px; font-weight: bold; }
 `;
 
+// AYRI GİRİŞ SAYFASI GET
+app.get('/login', (req, res) => {
+    if (req.session.user) return res.redirect('/');
+    res.send(`
+    <!DOCTYPE html>
+    <html lang="tr">
+    <head>
+        <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Giriş Yap - TikTok</title>
+        <style>
+            body { background: #0f0f0f; color: #fff; font-family: -apple-system, BlinkMacSystemFont, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+            .auth-card { width: 100%; max-width: 380px; padding: 30px; background: #1a1a1a; border-radius: 16px; box-shadow: 0 8px 30px rgba(0,0,0,0.5); text-align: center; }
+            h2 { margin-bottom: 25px; font-size: 24px; background: linear-gradient(90deg, #25F4EE, #FE2C55); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+            input { width: 100%; padding: 14px; margin-bottom: 15px; background: #2a2a2a; border: 1px solid #333; border-radius: 8px; color: #fff; font-size: 15px; outline: none; }
+            input:focus { border-color: #FE2C55; }
+            .btn-main { width: 100%; padding: 14px; background: #FE2C55; color: #fff; border: none; border-radius: 8px; font-weight: bold; font-size: 16px; cursor: pointer; transition: 0.2s; }
+            .btn-main:hover { opacity: 0.9; }
+            .auth-footer { margin-top: 20px; font-size: 14px; color: #888; }
+            .auth-footer a { color: #25F4EE; font-weight: bold; }
+        </style>
+    </head>
+    <body>
+        <div class="auth-card">
+            <h2>TikTok'a Giriş Yap</h2>
+            <form action="/login" method="POST">
+                <input type="text" name="username" placeholder="Kullanıcı adı" required autocomplete="off">
+                <input type="password" name="password" placeholder="Şifre" required>
+                <button type="submit" class="btn-main">Giriş Yap</button>
+            </form>
+            <div class="auth-footer">
+                Hesabın yok mu? <a href="/register">Kayıt ol</a>
+            </div>
+        </div>
+    </body>
+    </html>`);
+});
+
+// AYRI KAYIT SAYFASI GET
+app.get('/register', (req, res) => {
+    if (req.session.user) return res.redirect('/');
+    res.send(`
+    <!DOCTYPE html>
+    <html lang="tr">
+    <head>
+        <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Kayıt Ol - TikTok</title>
+        <style>
+            body { background: #0f0f0f; color: #fff; font-family: -apple-system, BlinkMacSystemFont, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+            .auth-card { width: 100%; max-width: 380px; padding: 30px; background: #1a1a1a; border-radius: 16px; box-shadow: 0 8px 30px rgba(0,0,0,0.5); text-align: center; }
+            h2 { margin-bottom: 25px; font-size: 24px; background: linear-gradient(90deg, #25F4EE, #FE2C55); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+            input { width: 100%; padding: 14px; margin-bottom: 15px; background: #2a2a2a; border: 1px solid #333; border-radius: 8px; color: #fff; font-size: 15px; outline: none; }
+            input:focus { border-color: #25F4EE; }
+            .btn-main { width: 100%; padding: 14px; background: linear-gradient(90deg, #25F4EE, #FE2C55); color: #000; border: none; border-radius: 8px; font-weight: bold; font-size: 16px; cursor: pointer; transition: 0.2s; }
+            .btn-main:hover { opacity: 0.9; }
+            .auth-footer { margin-top: 20px; font-size: 14px; color: #888; }
+            .auth-footer a { color: #FE2C55; font-weight: bold; }
+        </style>
+    </head>
+    <body>
+        <div class="auth-card">
+            <h2>TikTok'a Kaydolun</h2>
+            <form action="/register" method="POST">
+                <input type="text" name="username" placeholder="Kullanıcı adı" required autocomplete="off">
+                <input type="text" name="nickname" placeholder="Takma ad (Görünen isim)" required autocomplete="off">
+                <input type="password" name="password" placeholder="Şifre" required>
+                <button type="submit" class="btn-main">Kayıt Ol</button>
+            </form>
+            <div class="auth-footer">
+                Zaten hesabın var mı? <a href="/login">Giriş yap</a>
+            </div>
+        </div>
+    </body>
+    </html>`);
+});
+
 app.post('/register', async (req, res) => {
-    if (!isConnected) return res.send("<script>alert('Veritabanı bağlanıyor...'); window.location='/';</script>");
+    if (!isConnected) return res.send("<script>alert('Veritabanı bağlanıyor...'); window.location='/register';</script>");
     const { username, nickname, password } = req.body;
-    if (!username || !nickname || !password) return res.send("<script>alert('Tüm alanları doldurun!'); window.location='/';</script>");
+    if (!username || !nickname || !password) return res.send("<script>alert('Tüm alanları doldurun!'); window.location='/register';</script>");
 
     try {
         const cleanUsername = username.toLowerCase().trim();
         const existing = await usersCol.findOne({ username: cleanUsername });
-        if (existing) return res.send("<script>alert('Bu kullanıcı adı zaten alınmış!'); window.location='/';</script>");
+        if (existing) return res.send("<script>alert('Bu kullanıcı adı zaten alınmış!'); window.location='/register';</script>");
 
         const hashedPassword = await bcrypt.hash(password, 10);
         await usersCol.insertOne({ username: cleanUsername, nickname, password: hashedPassword, bio: 'TikTok içerik üreticisi 🎬', avatar: '', banner: '' });
-        res.send("<script>alert('Kayıt başarılı! Giriş yapabilirsiniz.'); window.location='/';</script>");
+        res.send("<script>alert('Kayıt başarılı! Giriş yapabilirsiniz.'); window.location='/login';</script>");
     } catch (err) {
-        res.send(`<script>alert('Kayıt Hatası: ${err.message}'); window.location='/';</script>`);
+        res.send(`<script>alert('Kayıt Hatası: ${err.message}'); window.location='/register';</script>`);
     }
 });
 
 app.post('/login', async (req, res) => {
-    if (!isConnected) return res.send("<script>alert('Veritabanı bağlanıyor...'); window.location='/';</script>");
+    if (!isConnected) return res.send("<script>alert('Veritabanı bağlanıyor...'); window.location='/login';</script>");
     const { username, password } = req.body;
     try {
         const user = await usersCol.findOne({ username: username.toLowerCase().trim() });
-        if (!user) return res.send("<script>alert('Kullanıcı bulunamadı!'); window.location='/';</script>");
+        if (!user) return res.send("<script>alert('Kullanıcı bulunamadı!'); window.location='/login';</script>");
         
         const match = await bcrypt.compare(password, user.password);
         if (match) { req.session.user = user; res.redirect('/'); } 
-        else { res.send("<script>alert('Hatalı şifre!'); window.location='/';</script>"); }
+        else { res.send("<script>alert('Hatalı şifre!'); window.location='/login';</script>"); }
     } catch (err) {
-        res.send(`<script>alert('Giriş Hatası: ${err.message}'); window.location='/';</script>`);
+        res.send(`<script>alert('Giriş Hatası: ${err.message}'); window.location='/login';</script>`);
     }
 });
 
-app.get('/logout', (req, res) => { req.session.destroy(() => res.redirect('/')); });
+app.get('/logout', (req, res) => { req.session.destroy(() => res.redirect('/login')); });
 
 app.get('/upload-story-page', (req, res) => {
-    if (!req.session.user) return res.redirect('/');
+    if (!req.session.user) return res.redirect('/login');
     res.send(`
     <!DOCTYPE html>
     <html lang="tr">
@@ -150,7 +223,7 @@ app.post('/upload-story', upload.single('media'), async (req, res) => {
 });
 
 app.get('/delete-story/:id', async (req, res) => {
-    if (!req.session.user || !isConnected) return res.redirect('/');
+    if (!req.session.user || !isConnected) return res.redirect('/login');
     try {
         const storyId = new ObjectId(req.params.id);
         const story = await storiesCol.findOne({ _id: storyId });
@@ -162,7 +235,7 @@ app.get('/delete-story/:id', async (req, res) => {
 });
 
 app.get('/upload-page', (req, res) => {
-    if (!req.session.user) return res.redirect('/');
+    if (!req.session.user) return res.redirect('/login');
     res.send(`
     <!DOCTYPE html>
     <html lang="tr">
@@ -236,7 +309,7 @@ app.post('/upload', upload.single('video'), async (req, res) => {
 });
 
 app.post('/comment/:id', upload.single('image'), async (req, res) => {
-    if (!req.session.user || !isConnected) return res.redirect('/');
+    if (!req.session.user || !isConnected) return res.redirect('/login');
     try {
         let imageUrl = req.file ? `/uploads/${req.file.filename}` : '';
         const commentText = (req.body.comment || '').trim();
@@ -256,7 +329,7 @@ app.post('/comment/:id', upload.single('image'), async (req, res) => {
 });
 
 app.get('/delete-video/:id', async (req, res) => {
-    if (!req.session.user || !isConnected) return res.redirect('/');
+    if (!req.session.user || !isConnected) return res.redirect('/login');
     try {
         const videoId = new ObjectId(req.params.id);
         const video = await videosCol.findOne({ _id: videoId });
@@ -271,7 +344,7 @@ app.get('/delete-video/:id', async (req, res) => {
 });
 
 app.get('/like/:id', async (req, res) => {
-    if (!req.session.user || !isConnected) return res.redirect('/');
+    if (!req.session.user || !isConnected) return res.redirect('/login');
     const videoId = new ObjectId(req.params.id);
     const userId = req.session.user._id;
 
@@ -287,7 +360,7 @@ app.get('/like/:id', async (req, res) => {
 });
 
 app.get('/favorite/:id', async (req, res) => {
-    if (!req.session.user || !isConnected) return res.redirect('/');
+    if (!req.session.user || !isConnected) return res.redirect('/login');
     const videoId = new ObjectId(req.params.id);
     const userId = req.session.user._id;
 
@@ -303,13 +376,13 @@ app.get('/favorite/:id', async (req, res) => {
 });
 
 app.get('/share/:id', async (req, res) => {
-    if (!req.session.user || !isConnected) return res.redirect('/');
+    if (!req.session.user || !isConnected) return res.redirect('/login');
     await videosCol.updateOne({ _id: new ObjectId(req.params.id) }, { $inc: { shares: 1 } });
     res.redirect('back');
 });
 
 app.get('/follow/:id', async (req, res) => {
-    if (!req.session.user || !isConnected) return res.redirect('/');
+    if (!req.session.user || !isConnected) return res.redirect('/login');
     const followerId = req.session.user._id;
     const followingId = new ObjectId(req.params.id);
 
@@ -320,7 +393,7 @@ app.get('/follow/:id', async (req, res) => {
 });
 
 app.post('/update-profile', upload.fields([{ name: 'avatar', maxCount: 1 }, { name: 'banner', maxCount: 1 }]), async (req, res) => {
-    if (!req.session.user || !isConnected) return res.redirect('/');
+    if (!req.session.user || !isConnected) return res.redirect('/login');
     try {
         const { nickname, bio } = req.body;
         const userId = new ObjectId(req.session.user._id);
@@ -342,13 +415,12 @@ app.post('/update-profile', upload.fields([{ name: 'avatar', maxCount: 1 }, { na
     } catch (err) { console.error(err); res.redirect(`/profile/${req.session.user.username}`); }
 });
 
-// PROFİL SAYFASI - SEKMELİ YAPI (GÖNDERİLER, BEĞENİLENLER, FAVORİLER) EKLENDİ
 app.get('/profile/:username', async (req, res) => {
-    if (!req.session.user || !isConnected) return res.redirect('/');
+    if (!req.session.user || !isConnected) return res.redirect('/login');
     const targetUser = await usersCol.findOne({ username: req.params.username });
     if (!targetUser) return res.send("Kullanıcı bulunamadı.");
 
-    const tab = req.query.tab || 'videos'; // videos, likes, favorites
+    const tab = req.query.tab || 'videos'; 
     const allUsers = await usersCol.find({}).toArray();
     
     let videos = [];
@@ -418,7 +490,6 @@ app.get('/profile/:username', async (req, res) => {
             .stats { display: flex; justify-content: center; gap: 20px; margin: 15px 0; font-size: 14px; }
             .stats div span { display: block; font-weight: bold; font-size: 16px; }
             
-            /* Profil Sekmeleri (TikTok Tarzı) */
             .profile-tabs { display: flex; border-bottom: 1px solid #222; background: #000; position: sticky; top: 0; z-index: 50; }
             .profile-tabs a { flex: 1; text-align: center; padding: 12px 0; font-size: 14px; color: #777; font-weight: bold; border-bottom: 2px solid transparent; }
             .profile-tabs a.active { color: #fff; border-bottom-color: #fff; }
@@ -475,7 +546,6 @@ app.get('/profile/:username', async (req, res) => {
             ${isMe ? `<button onclick="document.getElementById('editModal').style.display='flex'" style="padding:8px 25px; background:#2f2f2f; color:#fff; border:none; border-radius:6px; font-weight:bold; cursor:pointer;">Profili Düzenle</button>` : `<a href="/follow/${targetUser._id}" style="padding:8px 25px; background:${isFollowing ? '#333' : '#FE2C55'}; color:#fff; border-radius:6px; font-weight:bold;">${isFollowing ? 'Takiptesin' : 'Takip Et'}</a>`}
         </div>
 
-        <!-- Profil Sekme Menüsü -->
         <div class="profile-tabs">
             <a href="/profile/${targetUser.username}?tab=videos" class="${tab === 'videos' ? 'active' : ''}">🎬 Videolar</a>
             <a href="/profile/${targetUser.username}?tab=likes" class="${tab === 'likes' ? 'active' : ''}">❤️ Beğenilenler</a>
@@ -484,7 +554,6 @@ app.get('/profile/:username', async (req, res) => {
 
         <div class="grid">${videoHTML || '<p style="grid-column: span 3; text-align: center; color: #666; padding: 40px;">İçerik bulunamadı.</p>'}</div>
         
-        <!-- VİDEO ÖNİZLEME MODALI -->
         <div id="videoPopupModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.95); z-index:999999; justify-content:center; align-items:center;">
             <span onclick="closeVideoPopup()" style="position:absolute; top:20px; right:20px; color:#fff; font-size:30px; cursor:pointer; z-index:1000000;">✕</span>
             <div style="position:relative; max-width:400px; width:100%; height:80vh; display:flex; flex-direction:column; align-items:center; justify-content:center;">
@@ -494,7 +563,6 @@ app.get('/profile/:username', async (req, res) => {
             </div>
         </div>
 
-        <!-- HESAP DEĞİŞTİR MODALI -->
         <div id="accountModal" class="account-switcher-modal">
             <div class="account-switcher-content">
                 <div style="padding:15px; border-bottom:1px solid #eee; display:flex; justify-content:space-between; align-items:center; font-weight:bold; font-size:16px;">
@@ -503,7 +571,7 @@ app.get('/profile/:username', async (req, res) => {
                 </div>
                 <div style="overflow-y:auto; flex-grow:1;">
                     ${accountsHTML}
-                    <a href="/" style="display:flex; align-items:center; gap:12px; padding:15px; color:#000; font-weight:bold;">
+                    <a href="/login" style="display:flex; align-items:center; gap:12px; padding:15px; color:#000; font-weight:bold;">
                         <div style="width:40px; height:40px; background:#f1f1f2; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:20px;">+</div>
                         <span>Hesap Ekle</span>
                     </a>
@@ -532,7 +600,7 @@ app.get('/profile/:username', async (req, res) => {
 });
 
 app.get('/search', async (req, res) => {
-    if (!req.session.user) return res.redirect('/');
+    if (!req.session.user) return res.redirect('/login');
     const query = (req.query.q || '').trim();
     
     if (query && isConnected) {
@@ -625,7 +693,7 @@ app.get('/search', async (req, res) => {
 });
 
 app.get('/inbox', async (req, res) => {
-    if (!req.session.user || !isConnected) return res.redirect('/');
+    if (!req.session.user || !isConnected) return res.redirect('/login');
     const users = await usersCol.find({ _id: { $ne: new ObjectId(req.session.user._id) } }).toArray();
     const stories = await storiesCol.find({}).sort({ _id: -1 }).toArray();
     const myUsername = req.session.user.username;
@@ -733,7 +801,7 @@ app.get('/inbox', async (req, res) => {
 });
 
 app.get('/chat/:targetUser', async (req, res) => {
-    if (!req.session.user || !isConnected) return res.redirect('/');
+    if (!req.session.user || !isConnected) return res.redirect('/login');
     const target = await usersCol.findOne({ username: req.params.targetUser });
     if (!target) return res.send("Kullanıcı bulunamadı.");
 
@@ -819,73 +887,15 @@ app.get('/chat/:targetUser', async (req, res) => {
 });
 
 app.post('/send-msg/:targetUser', async (req, res) => {
-    if (!req.session.user || !isConnected) return res.redirect('/');
+    if (!req.session.user || !isConnected) return res.redirect('/login');
     await messagesCol.insertOne({ sender: req.session.user.username, receiver: req.params.targetUser, text: req.body.text, createdAt: new Date() });
     res.redirect('back');
 });
 
-// ANA SAYFA - GELİŞTİRİLMİŞ AKIŞ, HIZLI PAYLAŞIM MODALI VE YORUM SİSTEMİ
+// ANA SAYFA
 app.get('/', async (req, res) => {
     if (!req.session.user) {
-        return res.send(`
-        <!DOCTYPE html>
-        <html lang="tr">
-        <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>TikTok'a Kaydolun</title>
-            <style>
-                body { background: #fff; color: #000; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; margin: 0; padding: 20px; box-sizing: border-box; }
-                .container { width: 100%; max-width: 380px; text-align: center; }
-                h2 { font-size: 26px; font-weight: bold; margin-bottom: 30px; }
-                .form-group { display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px; }
-                input { width: 100%; padding: 14px; background: #f1f1f2; border: none; border-radius: 4px; font-size: 15px; box-sizing: border-box; outline: none; }
-                .btn-red { width: 100%; padding: 14px; background: #FE2C55; color: white; border: none; border-radius: 4px; font-weight: bold; font-size: 16px; cursor: pointer; }
-                .footer-text { position: fixed; bottom: 20px; width: 100%; text-align: center; font-size: 14px; color: #333; }
-                .footer-text span { color: #FE2C55; font-weight: bold; cursor: pointer; }
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <div id="registerView">
-                    <h2>TikTok'a kaydolun</h2>
-                    <form action="/register" method="POST" class="form-group">
-                        <input type="text" name="username" placeholder="Kullanıcı adı" required>
-                        <input type="text" name="nickname" placeholder="Takma ad (Görünen isim)" required>
-                        <input type="password" name="password" placeholder="Şifre" required>
-                        <button type="submit" class="btn-red">Kayıt Ol</button>
-                    </form>
-                </div>
-                <div id="loginView" style="display:none;">
-                    <h2>TikTok'a Giriş Yap</h2>
-                    <form action="/login" method="POST" class="form-group">
-                        <input type="text" name="username" placeholder="Kullanıcı adı" required>
-                        <input type="password" name="password" placeholder="Şifre" required>
-                        <button type="submit" class="btn-red">Giriş Yap</button>
-                    </form>
-                </div>
-            </div>
-            <div class="footer-text" id="footerText">
-                Zaten bir hesabınız var mı? <span onclick="toggleView()">Giriş yap</span>
-            </div>
-            <script>
-                function toggleView() {
-                    const reg = document.getElementById('registerView');
-                    const log = document.getElementById('loginView');
-                    const footer = document.getElementById('footerText');
-                    if (reg.style.display === 'none') {
-                        reg.style.display = 'block';
-                        log.style.display = 'none';
-                        footer.innerHTML = 'Zaten bir hesabınız var mı? <span onclick="toggleView()">Giriş yap</span>';
-                    } else {
-                        reg.style.display = 'none';
-                        log.style.display = 'block';
-                        footer.innerHTML = 'Hesabınız yok mu? <span onclick="toggleView()">Kayıt ol</span>';
-                    }
-                }
-            </script>
-        </body>
-        </html>`);
+        return res.redirect('/login');
     }
 
     const feedType = req.query.feed || 'foryou';
@@ -919,7 +929,6 @@ app.get('/', async (req, res) => {
             </div>`;
         });
 
-        // Hashtagleri otomatik renklendiren minik dokunuş
         let formattedCaption = (v.caption || '').replace(/(#\w+)/g, '<span style="color:#25F4EE; font-weight:bold;">$1</span>');
 
         feedHTML += `
@@ -937,7 +946,7 @@ app.get('/', async (req, res) => {
                 <a href="/like/${v._id}" class="action-btn">❤️<span>${v.likes}</span></a>
                 <a href="#" onclick="openComments('${v._id}'); return false;" class="action-btn">💬<span>${comments.length}</span></a>
                 <a href="/favorite/${v._id}" class="action-btn">⭐<span>${v.favorites}</span></a>
-                <a href="#" onclick="openShareModal('${v.filename}'); return false;" class="action-btn">↗️<span>${v.shares}</span></a>
+                <a href="#" onclick="openShareModal(); return false;" class="action-btn">↗️<span>${v.shares}</span></a>
             </div>
 
             <div id="commentModal-${v._id}" class="comment-modal">
@@ -1000,7 +1009,6 @@ app.get('/', async (req, res) => {
             .comment-text { font-size: 14px; color: #111; margin-top: 3px; }
             .comment-sticker { max-width: 140px; border-radius: 8px; margin-top: 6px; display: block; }
 
-            /* Paylaşım Modalı */
             .share-modal { display: none; position: fixed; bottom: 0; left: 0; width: 100%; background: #1a1a1a; z-index: 50000; border-top-left-radius: 20px; border-top-right-radius: 20px; padding: 20px; box-sizing: border-box; text-align: center; }
             .share-options { display: flex; gap: 20px; overflow-x: auto; padding: 10px 0; justify-content: space-around; }
             .share-item { display: flex; flex-direction: column; align-items: center; gap: 5px; font-size: 12px; color: #aaa; cursor: pointer; }
@@ -1029,7 +1037,7 @@ app.get('/', async (req, res) => {
                 input.focus();
             }
 
-            function openShareModal(url) {
+            function openShareModal() {
                 document.getElementById('shareModal').style.display = 'block';
             }
             function closeShareModal() {
@@ -1074,7 +1082,6 @@ app.get('/', async (req, res) => {
             ${feedHTML || '<div style="display:flex; justify-content:center; align-items:center; height:100vh; color:#666;">Hiç video bulunamadı.</div>'}
         </div>
 
-        <!-- GENEL PAYLAŞIM PANELİ -->
         <div id="shareModal" class="share-modal">
             <div style="font-weight:bold; margin-bottom:15px; font-size:15px;">Paylaş</div>
             <div class="share-options">
