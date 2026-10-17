@@ -84,9 +84,9 @@ const globalStyles = `
     .tiktok-nav a.active { color: #fff; }
     .plus-btn { position: relative; top: -5px; }
     .plus-icon { width: 40px; height: 26px; background: linear-gradient(90deg, #25F4EE 0%, #FE2C55 100%); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: #000; font-size: 22px; font-weight: bold; }
+    .verified-badge { color: #20D5EC; display: inline-block; margin-left: 4px; font-size: 14px; vertical-align: middle; }
 `;
 
-// AYRI GİRİŞ SAYFASI GET
 app.get('/login', (req, res) => {
     if (req.session.user) return res.redirect('/');
     res.send(`
@@ -110,7 +110,7 @@ app.get('/login', (req, res) => {
         <div class="auth-card">
             <h2>TikTok'a Giriş Yap</h2>
             <form action="/login" method="POST">
-                <input type="text" name="username" placeholder="Kullanıcı adı" required autocomplete="off">
+                <input type="text" name="username" placeholder="Kullanıcı adı" required autocomplete="off" style="text-transform: lowercase;" oninput="this.value = this.value.toLowerCase()">
                 <input type="password" name="password" placeholder="Şifre" required>
                 <button type="submit" class="btn-main">Giriş Yap</button>
             </form>
@@ -122,7 +122,6 @@ app.get('/login', (req, res) => {
     </html>`);
 });
 
-// AYRI KAYIT SAYFASI GET
 app.get('/register', (req, res) => {
     if (req.session.user) return res.redirect('/');
     res.send(`
@@ -146,7 +145,7 @@ app.get('/register', (req, res) => {
         <div class="auth-card">
             <h2>TikTok'a Kaydolun</h2>
             <form action="/register" method="POST">
-                <input type="text" name="username" placeholder="Kullanıcı adı" required autocomplete="off">
+                <input type="text" name="username" placeholder="Kullanıcı adı" required autocomplete="off" style="text-transform: lowercase;" oninput="this.value = this.value.toLowerCase()">
                 <input type="text" name="nickname" placeholder="Takma ad (Görünen isim)" required autocomplete="off">
                 <input type="password" name="password" placeholder="Şifre" required>
                 <button type="submit" class="btn-main">Kayıt Ol</button>
@@ -227,7 +226,7 @@ app.get('/delete-story/:id', async (req, res) => {
     try {
         const storyId = new ObjectId(req.params.id);
         const story = await storiesCol.findOne({ _id: storyId });
-        if (story && story.username === req.session.user.username) {
+        if (story && (story.username === req.session.user.username || req.session.user.username === 'tiktok')) {
             await storiesCol.deleteOne({ _id: storyId });
         }
     } catch (err) { console.error(err); }
@@ -328,19 +327,22 @@ app.post('/comment/:id', upload.single('image'), async (req, res) => {
     res.redirect('back');
 });
 
+// @tiktok HESABI İÇİN GELİŞMİŞ MOD SİLME YETKİSİ
 app.get('/delete-video/:id', async (req, res) => {
     if (!req.session.user || !isConnected) return res.redirect('/login');
     try {
         const videoId = new ObjectId(req.params.id);
         const video = await videosCol.findOne({ _id: videoId });
-        if (video && video.user_id.toString() === req.session.user._id.toString()) {
+        const isMod = req.session.user.username.toLowerCase() === 'tiktok';
+
+        if (video && (video.user_id.toString() === req.session.user._id.toString() || isMod)) {
             await videosCol.deleteOne({ _id: videoId });
             await commentsCol.deleteMany({ video_id: videoId });
             await likesCol.deleteMany({ video_id: videoId });
             await favoritesCol.deleteMany({ video_id: videoId });
         }
     } catch (err) { console.error(err); }
-    res.redirect(`/profile/${req.session.user.username}`);
+    res.redirect('back');
 });
 
 app.get('/like/:id', async (req, res) => {
@@ -417,7 +419,7 @@ app.post('/update-profile', upload.fields([{ name: 'avatar', maxCount: 1 }, { na
 
 app.get('/profile/:username', async (req, res) => {
     if (!req.session.user || !isConnected) return res.redirect('/login');
-    const targetUser = await usersCol.findOne({ username: req.params.username });
+    const targetUser = await usersCol.findOne({ username: req.params.username.toLowerCase() });
     if (!targetUser) return res.send("Kullanıcı bulunamadı.");
 
     const tab = req.query.tab || 'videos'; 
@@ -444,16 +446,19 @@ app.get('/profile/:username', async (req, res) => {
     let totalLikes = totalLikesAgg.length > 0 ? totalLikesAgg[0].total : 0;
 
     let isMe = req.session.user._id.toString() === targetUser._id.toString();
+    let isMod = req.session.user.username.toLowerCase() === 'tiktok';
     let isFollowing = !!followCheck;
+    let isTargetTikTok = targetUser.username.toLowerCase() === 'tiktok';
 
     let videoHTML = '';
     videos.forEach(v => {
         let safeCaption = (v.caption || '').replace(/'/g, "\\'");
+        let canDelete = isMe || (isMod && tab === 'videos');
         videoHTML += `
         <div class="v-thumb" onclick="openVideoModal('${v.filename}', '${safeCaption}', '${v.likes || 0}')" style="cursor:pointer;">
             <video src="${v.filename}#t=0.1" muted preload="metadata"></video>
             <div class="thumb-stats">❤️ ${v.likes}</div>
-            ${(isMe && tab === 'videos') ? `<a href="/delete-video/${v._id}" onclick="event.stopPropagation(); return confirm('Silinsin mi?');" style="position:absolute; top:5px; right:5px; background:rgba(0,0,0,0.6); color:#ff4d4d; padding:4px 8px; border-radius:4px; font-size:11px; z-index:10;">Sil</a>` : ''}
+            ${canDelete ? `<a href="/delete-video/${v._id}" onclick="event.stopPropagation(); return confirm('Videoyu silmek istediğine emin misin?');" style="position:absolute; top:5px; right:5px; background:rgba(0,0,0,0.7); color:#ff4d4d; padding:4px 8px; border-radius:4px; font-size:11px; z-index:10;">Sil</a>` : ''}
         </div>`;
     });
 
@@ -461,12 +466,13 @@ app.get('/profile/:username', async (req, res) => {
     allUsers.forEach(acc => {
         let isCurrent = acc.username === targetUser.username;
         let accAvatar = acc.avatar ? `<img src="${acc.avatar}" style="width:100%; height:100%; border-radius:50%; object-fit:cover;">` : acc.nickname.charAt(0).toUpperCase();
+        let accVerified = acc.username.toLowerCase() === 'tiktok' ? '<span class="verified-badge">✔</span>' : '';
         accountsHTML += `
         <a href="/profile/${acc.username}" style="display:flex; align-items:center; justify-content:space-between; padding:12px 15px; border-bottom:1px solid #eee; color:#000;">
             <div style="display:flex; align-items:center; gap:12px;">
                 <div style="width:40px; height:40px; background:#FE2C55; border-radius:50%; display:flex; align-items:center; justify-content:center; color:#fff; font-weight:bold; overflow:hidden;">${accAvatar}</div>
                 <div>
-                    <div style="font-weight:bold; font-size:15px;">${acc.nickname}</div>
+                    <div style="font-weight:bold; font-size:15px;">${acc.nickname} ${accVerified}</div>
                     <div style="font-size:12px; color:#888;">@${acc.username}</div>
                 </div>
             </div>
@@ -476,6 +482,7 @@ app.get('/profile/:username', async (req, res) => {
 
     let bannerBg = targetUser.banner ? `url('${targetUser.banner}')` : 'linear-gradient(135deg, #2b2b2b, #111)';
     let avatarHTML = targetUser.avatar ? `<img src="${targetUser.avatar}" style="width:100%; height:100%; border-radius:50%; object-fit:cover;">` : targetUser.nickname.charAt(0).toUpperCase();
+    let verifiedBadgeHTML = isTargetTikTok ? '<span class="verified-badge" title="Resmi Hesap">✔</span>' : '';
 
     res.send(`
     <!DOCTYPE html>
@@ -533,7 +540,7 @@ app.get('/profile/:username', async (req, res) => {
         <div class="profile-header">
             <div class="avatar">${avatarHTML}</div>
             <div style="display:flex; align-items:center; justify-content:center; gap:6px; cursor:pointer;" onclick="openAccountSwitcher()">
-                <h2 style="margin:5px 0;">${targetUser.nickname}</h2>
+                <h2 style="margin:5px 0;">${targetUser.nickname} ${verifiedBadgeHTML}</h2>
                 <span style="font-size:14px; color:#aaa;">▼</span>
             </div>
             <p style="color:#888; margin:0; font-size:13px;">@${targetUser.username}</p>
@@ -644,7 +651,8 @@ app.get('/search', async (req, res) => {
         dynamicListHTML += `<div style="padding:15px; font-weight:bold; font-size:16px; color:#000;">Kullanıcılar</div>`;
         if(searchResultsUsers.length > 0) {
             searchResultsUsers.forEach(u => {
-                dynamicListHTML += `<a href="/profile/${u.username}" style="display:flex; align-items:center; gap:12px; padding:12px 16px; border-bottom:1px solid #f1f1f2; color:#000;"><div style="width:36px; height:36px; background:#FE2C55; color:#fff; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:bold;">👤</div><div><b>${u.nickname}</b><div style="font-size:12px; color:#888;">@${u.username}</div></div></a>`;
+                let uVerified = u.username.toLowerCase() === 'tiktok' ? '<span class="verified-badge">✔</span>' : '';
+                dynamicListHTML += `<a href="/profile/${u.username}" style="display:flex; align-items:center; gap:12px; padding:12px 16px; border-bottom:1px solid #f1f1f2; color:#000;"><div style="width:36px; height:36px; background:#FE2C55; color:#fff; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:bold;">👤</div><div><b>${u.nickname} ${uVerified}</b><div style="font-size:12px; color:#888;">@${u.username}</div></div></a>`;
             });
         } else {
             dynamicListHTML += `<div style="padding:15px; color:#888; font-size:14px;">Kullanıcı bulunamadı.</div>`;
@@ -739,7 +747,7 @@ app.get('/inbox', async (req, res) => {
                 const deleteBtn = document.getElementById('storyDeleteBtn');
                 
                 document.getElementById('storyUsername').innerText = '@' + username;
-                if(isMyStory) {
+                if(isMyStory || '${req.session.user.username}' === 'tiktok') {
                     deleteBtn.style.display = 'block';
                     deleteBtn.onclick = function() {
                         if(confirm('Hikayeyi silmek istediğine emin misin?')) {
@@ -802,7 +810,7 @@ app.get('/inbox', async (req, res) => {
 
 app.get('/chat/:targetUser', async (req, res) => {
     if (!req.session.user || !isConnected) return res.redirect('/login');
-    const target = await usersCol.findOne({ username: req.params.targetUser });
+    const target = await usersCol.findOne({ username: req.params.targetUser.toLowerCase() });
     if (!target) return res.send("Kullanıcı bulunamadı.");
 
     const myUser = req.session.user.username;
@@ -818,6 +826,8 @@ app.get('/chat/:targetUser', async (req, res) => {
             </div>
         </div>`;
     });
+
+    let targetVerified = target.username.toLowerCase() === 'tiktok' ? '<span class="verified-badge">✔</span>' : '';
 
     res.send(`
     <!DOCTYPE html>
@@ -855,7 +865,7 @@ app.get('/chat/:targetUser', async (req, res) => {
                 <a href="/inbox" style="font-size:24px; font-weight:bold;">‹</a>
                 <div class="chat-avatar">${target.avatar ? `<img src="${target.avatar}" style="width:100%; height:100%; object-fit:cover;">` : target.nickname.charAt(0).toUpperCase()}</div>
                 <div>
-                    <div style="font-weight:bold; font-size:15px; color:#000;">${target.nickname}</div>
+                    <div style="font-weight:bold; font-size:15px; color:#000;">${target.nickname} ${targetVerified}</div>
                     <div style="font-size:11px; color:#888;">@${target.username}</div>
                 </div>
             </div>
@@ -911,6 +921,8 @@ app.get('/', async (req, res) => {
         }
     }
 
+    let isMod = req.session.user.username.toLowerCase() === 'tiktok';
+
     let feedHTML = '';
     for (let v of videos) {
         const comments = await commentsCol.find({ video_id: v._id }).sort({ _id: -1 }).toArray();
@@ -930,6 +942,8 @@ app.get('/', async (req, res) => {
         });
 
         let formattedCaption = (v.caption || '').replace(/(#\w+)/g, '<span style="color:#25F4EE; font-weight:bold;">$1</span>');
+        let authorVerified = v.username.toLowerCase() === 'tiktok' ? '<span class="verified-badge">✔</span>' : '';
+        let canDeleteVideo = (v.username.toLowerCase() === req.session.user.username.toLowerCase()) || isMod;
 
         feedHTML += `
         <div class="video-container" id="container-${v._id}">
@@ -937,7 +951,7 @@ app.get('/', async (req, res) => {
             <div class="sound-toggle" onclick="toggleSound('vid-${v._id}', this)">🔊 Sesi Aç</div>
             
             <div class="video-info">
-                <a href="/profile/${v.username}" style="font-weight: bold; font-size: 15px; text-shadow: 0 1px 2px #000;">@${v.username}</a>
+                <a href="/profile/${v.username}" style="font-weight: bold; font-size: 15px; text-shadow: 0 1px 2px #000;">@${v.username} ${authorVerified}</a>
                 <p style="margin: 5px 0; font-size: 14px; text-shadow: 0 1px 2px #000;">${formattedCaption}</p>
                 <p style="margin: 0; font-size: 12px; color: #ddd; text-shadow: 0 1px 2px #000;">🎵 ${v.song}</p>
             </div>
@@ -947,6 +961,7 @@ app.get('/', async (req, res) => {
                 <a href="#" onclick="openComments('${v._id}'); return false;" class="action-btn">💬<span>${comments.length}</span></a>
                 <a href="/favorite/${v._id}" class="action-btn">⭐<span>${v.favorites}</span></a>
                 <a href="#" onclick="openShareModal(); return false;" class="action-btn">↗️<span>${v.shares}</span></a>
+                ${canDeleteVideo ? `<a href="/delete-video/${v._id}" onclick="return confirm('Bu videoyu silmek istiyor musunuz?');" class="action-btn" style="background:rgba(255,0,0,0.6);" title="Mod Silme Yetkisi">🗑️<span>Sil</span></a>` : ''}
             </div>
 
             <div id="commentModal-${v._id}" class="comment-modal">
