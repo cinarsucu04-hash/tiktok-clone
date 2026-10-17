@@ -6,6 +6,7 @@ const session = require('express-session');
 const multer = require('multer');
 const fs = require('fs');
 const path = require('path');
+const https = require('https'); // Canlı tutma botu için eklendi
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -360,11 +361,12 @@ app.get('/profile/:username', async (req, res) => {
 
     let videoHTML = '';
     videos.forEach(v => {
+        let safeCaption = (v.caption || '').replace(/'/g, "\\'");
         videoHTML += `
-        <div class="v-thumb">
+        <div class="v-thumb" onclick="openVideoModal('${v.filename}', '${safeCaption}', '${v.likes || 0}')" style="cursor:pointer;">
             <video src="${v.filename}" muted></video>
             <div class="thumb-stats">❤️ ${v.likes}</div>
-            ${isMe ? `<a href="/delete-video/${v._id}" onclick="return confirm('Silinsin mi?');" style="position:absolute; top:5px; right:5px; background:rgba(0,0,0,0.6); color:#ff4d4d; padding:4px 8px; border-radius:4px; font-size:11px;">Sil</a>` : ''}
+            ${isMe ? `<a href="/delete-video/${v._id}" onclick="event.stopPropagation(); return confirm('Silinsin mi?');" style="position:absolute; top:5px; right:5px; background:rgba(0,0,0,0.6); color:#ff4d4d; padding:4px 8px; border-radius:4px; font-size:11px; z-index:10;">Sil</a>` : ''}
         </div>`;
     });
 
@@ -411,6 +413,27 @@ app.get('/profile/:username', async (req, res) => {
         <script>
             function openAccountSwitcher() { document.getElementById('accountModal').style.display = 'flex'; }
             function closeAccountSwitcher() { document.getElementById('accountModal').style.display = 'none'; }
+            
+            function openVideoModal(filename, caption, likes) {
+                const modal = document.getElementById('videoPopupModal');
+                const player = document.getElementById('popupVideoPlayer');
+                const captionText = document.getElementById('popupVideoCaption');
+                const likesText = document.getElementById('popupVideoLikes');
+                
+                player.src = filename;
+                captionText.innerText = caption ? caption : '';
+                likesText.innerText = '❤️ ' + likes + ' Beğeni';
+                modal.style.display = 'flex';
+                player.play();
+            }
+
+            function closeVideoPopup() {
+                const modal = document.getElementById('videoPopupModal');
+                const player = document.getElementById('popupVideoPlayer');
+                player.pause();
+                player.src = '';
+                modal.style.display = 'none';
+            }
         </script>
     </head>
     <body>
@@ -432,6 +455,16 @@ app.get('/profile/:username', async (req, res) => {
         </div>
         <div class="grid">${videoHTML || '<p style="grid-column: span 3; text-align: center; color: #666; padding: 40px;">Henüz video yok.</p>'}</div>
         
+        <!-- VİDEO İZLEME PENCERESİ (MODAL) -->
+        <div id="videoPopupModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.9); z-index:999999; justify-content:center; align-items:center;">
+            <span onclick="closeVideoPopup()" style="position:absolute; top:20px; right:20px; color:#fff; font-size:30px; cursor:pointer; z-index:1000000;">✕</span>
+            <div style="position:relative; max-width:400px; width:100%; height:80vh; display:flex; flex-direction:column; align-items:center; justify-content:center;">
+                <video id="popupVideoPlayer" src="" controls autoplay style="max-width:100%; max-height:80vh; object-fit:contain; border-radius:10px;"></video>
+                <div id="popupVideoCaption" style="color:#fff; margin-top:10px; font-size:14px; text-align:center;"></div>
+                <div id="popupVideoLikes" style="color:#ff4d4d; margin-top:5px; font-size:14px; font-weight:bold;"></div>
+            </div>
+        </div>
+
         <!-- HESAP DEĞİŞTİR MODALI -->
         <div id="accountModal" class="account-switcher-modal">
             <div class="account-switcher-content">
@@ -762,7 +795,7 @@ app.post('/send-msg/:targetUser', async (req, res) => {
     res.redirect('back');
 });
 
-// ANA SAYFA - YORUM GİRİŞİ ÜSTE TAŞINDI VE TAM YÜKSEKLİK / SAYI EKLENDİ
+// ANA SAYFA
 app.get('/', async (req, res) => {
     if (!req.session.user) {
         return res.send(`
@@ -875,14 +908,12 @@ app.get('/', async (req, res) => {
                 <a href="/share/${v._id}" onclick="alert('Kopyalandı!');" class="action-btn">↗️<span>${v.shares}</span></a>
             </div>
 
-            <!-- YORUM GİRİŞİ ÜSTE TAŞINMIŞ VE TAM BOYUTLU YORUM PANELİ -->
             <div id="commentModal-${v._id}" class="comment-modal">
                 <div class="comment-modal-header">
                     <span>${comments.length} yorum</span>
                     <span onclick="closeComments('${v._id}')" class="comment-close-btn">✕</span>
                 </div>
                 
-                <!-- Yorum yazma alanı artık üste alındı -->
                 <form action="/comment/${v._id}" method="POST" enctype="multipart/form-data" class="comment-input-form" autocomplete="off">
                     <input type="text" id="commentInput-${v._id}" name="comment" placeholder="Yorum ekle..." autocomplete="off">
                     <input type="file" name="image" accept="image/*" style="display:none;" id="img-${v._id}">
@@ -922,7 +953,6 @@ app.get('/', async (req, res) => {
             .action-btn { background: rgba(0,0,0,0.4); width: 42px; height: 42px; border-radius: 50%; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 16px; color: #fff; }
             .sound-toggle { position: absolute; top: 65px; right: 15px; background: rgba(0,0,0,0.6); color: #fff; padding: 6px 12px; border-radius: 15px; font-size: 12px; z-index: 15; cursor: pointer; border: 1px solid rgba(255,255,255,0.3); }
             
-            /* TAM YÜKSEKLİK VE ÜSTE ALINMIŞ YORUM PANELİ */
             .comment-modal { display: none; position: fixed; bottom: 0; left: 0; width: 100%; height: 85vh; background: #ffffff; color: #000000; z-index: 30000; border-top-left-radius: 20px; border-top-right-radius: 20px; flex-direction: column; box-shadow: 0 -5px 25px rgba(0,0,0,0.5); }
             .comment-modal-header { padding: 12px 15px; border-bottom: 1px solid #f1f1f2; display: flex; justify-content: center; align-items: center; font-weight: bold; font-size: 15px; position: relative; flex-shrink: 0; }
             .comment-close-btn { position: absolute; right: 15px; cursor: pointer; font-size: 20px; color: #000; }
@@ -993,5 +1023,24 @@ app.get('/', async (req, res) => {
     </html>
     `);
 });
+
+// --- CANLI TUTMA BOTU (Sunucunun uykuya dalmasını ve videoların siyah olmasını önler) ---
+const SITE_URL = process.env.RENDER_EXTERNAL_URL || 'http://localhost:' + PORT;
+
+function keepAlive() {
+    https.get(SITE_URL, (res) => {
+        console.log(`[Canlı Bot] İstek atıldı, durum kodu: ${res.statusCode}`);
+    }).on('error', (err) => {
+        // Yerel testlerde https hatası almaması için alternatif
+        try {
+            const http = require('http');
+            http.get(SITE_URL, (res) => {});
+        } catch (e) {}
+    });
+}
+
+// Her 5 dakikada bir (300000 ms) kendi kendine istek atar
+setInterval(keepAlive, 5 * 60 * 1000);
+// ---------------------------------------------------------------------------------
 
 app.listen(PORT, () => { console.log(`Sunucu ${PORT} portunda aktif.`); });
