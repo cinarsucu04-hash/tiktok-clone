@@ -15,7 +15,7 @@ const MONGO_URL = process.env.MONGO_URL || "mongodb+srv://cinarsucu04_db_user:46
 
 let db, usersCol, videosCol, commentsCol, followsCol, likesCol, favoritesCol, storiesCol, messagesCol, groupsCol, searchesCol, analyticsCol, announcementsCol, logsCol;
 let isConnected = false;
-let isMaintenance = false; // Bakım Modu
+let isMaintenance = false;
 
 MongoClient.connect(MONGO_URL)
     .then(client => {
@@ -55,7 +55,6 @@ app.use(bodyParser.json());
 app.use(express.static('public'));
 app.use(session({ secret: 'tiktok-cloud-key', resave: false, saveUninitialized: true }));
 
-// Bot ve Spam İstek Sınırı (Rate Limiting)
 const requestTracker = {};
 app.use((req, res, next) => {
     const ip = req.ip || req.connection.remoteAddress;
@@ -73,7 +72,6 @@ app.use((req, res, next) => {
     next();
 });
 
-// Bakım Modu Kontrolü
 app.use((req, res, next) => {
     if (isMaintenance && req.session?.user?.username?.toLowerCase() !== 'tiktok' && !req.path.startsWith('/login') && !req.path.startsWith('/register') && !req.path.startsWith('/mod-panel')) {
         return res.status(503).send("<h2 style='text-align:center; margin-top:25vh; color:#FE2C55;'>🛠️ Platform Bakımda</h2><p style='text-align:center; color:#888;'>Şu anda sistem güncellenmektedir. Lütfen daha sonra tekrar deneyin.</p>");
@@ -177,7 +175,7 @@ app.get('/register', (req, res) => {
             .auth-card { width: 100%; max-width: 380px; padding: 30px; background: #1a1a1a; border-radius: 16px; box-shadow: 0 8px 30px rgba(0,0,0,0.5); text-align: center; }
             h2 { margin-bottom: 25px; font-size: 24px; background: linear-gradient(90deg, #25F4EE, #FE2C55); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
             input { width: 100%; padding: 14px; margin-bottom: 15px; background: #2a2a2a; border: 1px solid #333; border-radius: 8px; color: #fff; font-size: 15px; outline: none; }
-            input:focus { border-color: #FE2C55; }
+            input:focus { border-color: #25F4EE; }
             .btn-main { width: 100%; padding: 14px; background: linear-gradient(90deg, #25F4EE, #FE2C55); color: #000; border: none; border-radius: 8px; font-weight: bold; font-size: 16px; cursor: pointer; transition: 0.2s; }
             .btn-main:hover { opacity: 0.9; }
             .auth-footer { margin-top: 20px; font-size: 14px; color: #888; }
@@ -236,7 +234,6 @@ app.post('/login', async (req, res) => {
 
 app.get('/logout', (req, res) => { req.session.destroy(() => res.redirect('/login')); });
 
-// KEŞFET SAYFASI
 app.get('/explore', async (req, res) => {
     if (!req.session.user || !isConnected) return res.redirect('/login');
     const topVideos = await videosCol.find({}).sort({ likes: -1 }).limit(10).toArray();
@@ -290,7 +287,6 @@ app.get('/explore', async (req, res) => {
     </html>`);
 });
 
-// @tiktok HESABINA ÖZEL MODERATÖR & YÖNETİM PANELİ (Gelişmiş Özelliklerle Tam)
 app.get('/mod-panel', async (req, res) => {
     if (!req.session.user || !isConnected) return res.redirect('/login');
     if (req.session.user.username.toLowerCase() !== 'tiktok') {
@@ -370,7 +366,10 @@ app.get('/mod-panel', async (req, res) => {
             <h3 style="margin-top:0; color:#25F4EE; font-size:15px;">📢 Herkese Açık Global Duyuru Yayınla</h3>
             <form action="/mod/announcement" method="POST" style="display:flex; flex-direction:column; gap:10px;">
                 <input type="text" name="announcementText" placeholder="Örn: Selam herkese sistem güncellendi!" required style="padding:10px; background:#2a2a2a; border:1px solid #444; border-radius:6px; color:#fff; outline:none;">
-                <button type="submit" class="btn-action" style="background:#25F4EE; color:#000; width:100%;">Duyuruyu Yayınla (Herkesin Önünde Çıksın)</button>
+                <div style="display:flex; gap:10px;">
+                    <button type="submit" class="btn-action" style="background:#25F4EE; color:#000; flex:1;">Duyuruyu Yayınla</button>
+                    <a href="/mod/clear-announcement" class="btn-action" style="background:#ff4d4d; color:#fff; text-align:center; display:flex; align-items:center; justify-content:center; flex:1;">Duyuruyu Kaldır (Sil)</a>
+                </div>
             </form>
         </div>
 
@@ -383,18 +382,6 @@ app.get('/mod-panel', async (req, res) => {
             </div>
             <a href="/mod/toggle-maintenance" class="btn-action" style="background:${isMaintenance ? '#25F4EE' : '#ff4d4d'}; color:${isMaintenance ? '#000' : '#fff'}; text-align:center; display:block;">${isMaintenance ? 'Bakım Modunu Kapat' : 'Bakım Modunu Aç (Siteyi Kilitle)'}</a>
             <a href="/mod/backup" class="btn-action" style="background:#333; color:#fff; text-align:center; display:block; margin-top:8px;">📥 Veritabanı Yedeğini İndir (JSON)</a>
-        </div>
-
-        <div class="section-box">
-            <h3 style="margin-top:0; font-size:16px;">⚡ Hızlı Yetki & Güvenlik İşlemleri (8, 9, 11, 13, 15, 18 nolu Mod Yetkileri)</h3>
-            <div style="display:flex; flex-wrap:wrap; gap:10px;">
-                <button class="btn-action" onclick="alert('8: Global Duyuru Yayınlandı!')">📢 8: Tüm Platforma Duyuru Geç</button>
-                <button class="btn-action" onclick="alert('9: Sistem Önbelleği Temizlendi!')">🧹 9: Önbelleği ve Logları Temizle</button>
-                <button class="btn-action" onclick="alert('11: Tüm Yorum Filtreleri Aktif!')">🛡️ 11: Küfür ve Spam Filtresini Güçlendir</button>
-                <button class="btn-action" onclick="alert('13: Sunucu Güvenlik Duvarı (Firewall) Güncellendi!')">🔒 13: Güvenlik Duvarını Güncelle</button>
-                <button class="btn-action" onclick="alert('15: Trend Algoritması Sıfırlandı ve Yeniden Hesaplandı!')">📈 15: Keşfet/Trend Algoritmasını Tetikle</button>
-                <button class="btn-action" onclick="alert('18: Tüm Sunucu Sağlık Kontrolleri Başarılı!')">⚙️ 18: Sunucu Sağlık Kontrolü Yap</button>
-            </div>
         </div>
 
         <div class="section-box">
@@ -432,6 +419,12 @@ app.post('/mod/announcement', async (req, res) => {
         await announcementsCol.insertOne({ text, createdAt: new Date() });
         await logsCol.insertOne({ admin: req.session.user.username, action: `Duyuru: "${text}"`, createdAt: new Date() });
     }
+    res.redirect('/mod-panel');
+});
+
+app.get('/mod/clear-announcement', async (req, res) => {
+    if (!req.session.user || req.session.user.username.toLowerCase() !== 'tiktok') return res.redirect('/login');
+    if (announcementsCol) await announcementsCol.deleteMany({});
     res.redirect('/mod-panel');
 });
 
@@ -1441,7 +1434,7 @@ app.post('/send-group-msg/:groupId', async (req, res) => {
     res.redirect('back');
 });
 
-// ANA SAYFA & TOPLULUK & GLOBAL DUYURU BANNER'I
+// ANA SAYFA & TOPLULUK & DÜYURU BANNER'I (Kapatma Butonlu)
 app.get('/', async (req, res) => {
     if (!req.session.user) {
         return res.redirect('/login');
@@ -1613,6 +1606,11 @@ app.get('/', async (req, res) => {
                 closeShareModal();
             }
 
+            function closeAnnouncement() {
+                const banner = document.getElementById('announcementBanner');
+                if(banner) banner.style.display = 'none';
+            }
+
             document.addEventListener("DOMContentLoaded", () => {
                 const containers = document.querySelectorAll('.video-container');
                 const observer = new IntersectionObserver((entries) => {
@@ -1631,7 +1629,7 @@ app.get('/', async (req, res) => {
         </script>
     </head>
     <body>
-        ${activeAnnouncement ? `<div style="position:fixed; top:45px; left:0; width:100%; background:linear-gradient(90deg,#FE2C55,#25F4EE); color:#000; padding:10px 15px; font-weight:bold; font-size:13px; z-index:9999; text-align:center; box-shadow:0 2px 10px rgba(0,0,0,0.5);">📢 DUYURU: ${activeAnnouncement.text}</div>` : ''}
+        ${activeAnnouncement ? `<div id="announcementBanner" style="position:fixed; top:45px; left:0; width:100%; background:linear-gradient(90deg,#FE2C55,#25F4EE); color:#000; padding:10px 15px; font-weight:bold; font-size:13px; z-index:9999; text-align:center; box-shadow:0 2px 10px rgba(0,0,0,0.5); display:flex; justify-content:space-between; align-items:center;"><span style="flex:1; text-align:center;">📢 DUYURU: ${activeAnnouncement.text}</span><span onclick="closeAnnouncement()" style="cursor:pointer; font-size:16px; font-weight:bold; padding:0 10px;">✕</span></div>` : ''}
 
         <div class="top-tabs">
             <a href="/?feed=community" class="${feedType === 'community' ? 'active' : ''}">Topluluk</a>
