@@ -13,7 +13,7 @@ const PORT = process.env.PORT || 3000;
 
 const MONGO_URL = process.env.MONGO_URL || "mongodb+srv://cinarsucu04_db_user:46vjLI7sNK7djBeE@cluster0.utveet0.mongodb.net/?retryWrites=true&w=majority";
 
-let db, usersCol, videosCol, commentsCol, followsCol, likesCol, favoritesCol, storiesCol, messagesCol, searchesCol, livesCol;
+let db, usersCol, videosCol, commentsCol, followsCol, likesCol, favoritesCol, storiesCol, messagesCol, searchesCol;
 let isConnected = false;
 
 MongoClient.connect(MONGO_URL)
@@ -28,7 +28,6 @@ MongoClient.connect(MONGO_URL)
         storiesCol = db.collection('stories');
         messagesCol = db.collection('messages');
         searchesCol = db.collection('searches');
-        livesCol = db.collection('lives');
         isConnected = true;
         console.log("MongoDB veritabanı bağlantısı başarılı!");
     })
@@ -51,18 +50,6 @@ app.use(bodyParser.json());
 app.use(express.static('public'));
 app.use(session({ secret: 'tiktok-cloud-key', resave: false, saveUninitialized: true }));
 
-// SADECE YAYIN YAPANLARA 30 DAKİKADA BİR 50 JETON KAZANDIRAN INTERVAL
-setInterval(async () => {
-    if (!isConnected) return;
-    try {
-        const activeLives = await livesCol.find({ status: 'active' }).toArray();
-        for (let l of activeLives) {
-            await usersCol.updateOne({ username: l.username }, { $inc: { coins: 50 } });
-            console.log(`[Yayın Jetonu] @${l.username} aktif yayın yaptığı için 50 jeton kazandı.`);
-        }
-    } catch (e) { console.error("Yayın jeton dağıtım hatası:", e); }
-}, 30 * 60 * 1000);
-
 function getNavbar(activeTab, username, isFriendsTab) {
     return `
     <div class="tiktok-nav">
@@ -70,9 +57,9 @@ function getNavbar(activeTab, username, isFriendsTab) {
             <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L3 9v11h6v-6h6v6h6V9l-9-7z"/></svg>
             <span>Ana sayfa</span>
         </a>
-        <a href="/?feed=friends" class="${(activeTab === 'home' && isFriendsTab) ? 'active' : ''}">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
-            <span>Arkadaşlar</span>
+        <a href="/explore" class="${activeTab === 'explore' ? 'active' : ''}">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M12 10.9c-.61 0-1.1.49-1.1 1.1s.49 1.1 1.1 1.1c.61 0 1.1-.49 1.1-1.1s-.49-1.1-1.1-1.1zM12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm2.19 12.19L6 18l3.81-8.19L18 6l-3.81 8.19z"/></svg>
+            <span>Keşfet</span>
         </a>
         <a href="/upload-page" class="plus-btn">
             <div class="plus-icon">+</div>
@@ -218,165 +205,55 @@ app.post('/login', async (req, res) => {
 
 app.get('/logout', (req, res) => { req.session.destroy(() => res.redirect('/login')); });
 
-// CANLI YAYIN İŞLEMLERİ (BAŞLAT, DURDUR, KAPAT)
-app.get('/start-live', async (req, res) => {
+// KEŞFET SAYFASI
+app.get('/explore', async (req, res) => {
     if (!req.session.user || !isConnected) return res.redirect('/login');
-    const username = req.session.user.username;
-    
-    await livesCol.updateOne(
-        { username: username },
-        { $set: { nickname: req.session.user.nickname, avatar: req.session.user.avatar || '', title: `${req.session.user.nickname} canlı yayında! 🔴`, viewers: Math.floor(Math.random() * 450) + 50, status: 'active', chestCoins: 0, createdAt: new Date() } },
-        { upsert: true }
-    );
-    res.redirect(`/live/${username}`);
-});
+    const topVideos = await videosCol.find({}).sort({ likes: -1 }).limit(10).toArray();
+    const allUsers = await usersCol.find({}).limit(10).toArray();
 
-app.get('/pause-live', async (req, res) => {
-    if (!req.session.user || !isConnected) return res.redirect('/login');
-    const live = await livesCol.findOne({ username: req.session.user.username });
-    if (live) {
-        const newStatus = live.status === 'paused' ? 'active' : 'paused';
-        await livesCol.updateOne({ username: req.session.user.username }, { $set: { status: newStatus } });
-    }
-    res.redirect('back');
-});
+    let trendingTags = ['#keşfet', '#fyp', '#komedi', '#driftphonk', '#music', '#roblox', '#minecraft', '#dans', '#trend'];
+    let tagsHTML = '';
+    trendingTags.forEach(tag => {
+        tagsHTML += `<a href="/search?q=${encodeURIComponent(tag)}" style="background:#222; padding:10px 16px; border-radius:20px; font-weight:bold; font-size:14px; color:#fff; display:inline-block; margin:5px;">🔥 ${tag}</a>`;
+    });
 
-app.get('/end-live', async (req, res) => {
-    if (!req.session.user || !isConnected) return res.redirect('/login');
-    await livesCol.deleteOne({ username: req.session.user.username });
-    res.redirect('/');
-});
-
-app.post('/drop-chest', async (req, res) => {
-    if (!req.session.user || !isConnected) return res.redirect('/login');
-    const amount = parseInt(req.body.amount) || 50;
-    await livesCol.updateOne({ username: req.session.user.username }, { $set: { chestCoins: amount } });
-    res.redirect('back');
-});
-
-app.get('/open-chest/:username', async (req, res) => {
-    if (!req.session.user || !isConnected) return res.redirect('/login');
-    const targetLive = await livesCol.findOne({ username: req.params.username.toLowerCase() });
-    if (targetLive && targetLive.chestCoins > 0) {
-        const reward = targetLive.chestCoins;
-        await usersCol.updateOne({ _id: new ObjectId(req.session.user._id) }, { $inc: { coins: reward } });
-        await livesCol.updateOne({ username: req.params.username.toLowerCase() }, { $set: { chestCoins: 0 } });
-        req.session.user.coins = (req.session.user.coins || 0) + reward;
-    }
-    res.redirect('back');
-});
-
-// CANLI YAYIN ODASI
-app.get('/live/:username', async (req, res) => {
-    if (!req.session.user || !isConnected) return res.redirect('/login');
-    const targetUsername = req.params.username.toLowerCase();
-    const liveInfo = await livesCol.findOne({ username: targetUsername });
-    const freshUser = await usersCol.findOne({ _id: new ObjectId(req.session.user._id) });
-    req.session.user = freshUser;
-
-    if (!liveInfo) {
-        return res.send("<script>alert('Bu kullanıcı şu an canlı yayında değil!'); window.location='/';</script>");
-    }
-
-    const isMyLive = req.session.user.username === targetUsername;
-    const isPaused = liveInfo.status === 'paused';
+    let topVideosHTML = '';
+    topVideos.forEach(v => {
+        topVideosHTML += `
+        <div style="background:#1a1a1a; border-radius:12px; overflow:hidden; min-width:140px; flex-shrink:0; cursor:pointer;" onclick="window.location='/'">
+            <video src="${v.filename}#t=0.1" style="width:140px; height:200px; object-fit:cover;"></video>
+            <div style="padding:8px; font-size:12px; font-weight:bold; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">@${v.username}</div>
+        </div>`;
+    });
 
     res.send(`
     <!DOCTYPE html>
     <html lang="tr">
     <head>
-        <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>CANLI - @${targetUsername}</title>
+        <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Keşfet - TikTok</title>
         <style>
             ${globalStyles}
-            body { background: #111; overflow: hidden; height: 100vh; }
-            .live-container { position: relative; width: 100vw; height: 100vh; display: flex; flex-direction: column; justify-content: space-between; }
-            .live-top-bar { position: absolute; top: 15px; left: 15px; right: 15px; display: flex; justify-content: space-between; align-items: center; z-index: 100; }
-            .live-host-badge { background: rgba(0,0,0,0.6); backdrop-filter: blur(10px); padding: 6px 12px; border-radius: 20px; display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: bold; }
-            .live-red-tag { background: #FE2C55; color: #fff; padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; }
-            .live-chat-area { position: absolute; bottom: 70px; left: 15px; width: 280px; max-height: 250px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; z-index: 100; pointer-events: none; }
-            .chat-bubble { background: rgba(0,0,0,0.4); backdrop-filter: blur(5px); padding: 8px 12px; border-radius: 12px; font-size: 13px; line-height: 1.3; animation: fadeIn 0.3s ease; }
-            .live-bottom-bar { position: absolute; bottom: 15px; left: 15px; right: 15px; display: flex; align-items: center; gap: 10px; z-index: 100; }
-            .live-input { flex-grow: 1; background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); border-radius: 24px; padding: 12px 18px; color: #fff; outline: none; font-size: 14px; }
-            .live-action-btn { width: 44px; height: 44px; background: rgba(0,0,0,0.5); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 20px; cursor: pointer; border: 1px solid rgba(255,255,255,0.2); }
-            .chest-box-popup { position: absolute; top: 90px; right: 15px; background: linear-gradient(135deg, #FFD700, #FF4500); padding: 10px 16px; border-radius: 20px; font-weight: bold; font-size: 14px; color: #000; cursor: pointer; z-index: 200; animation: bounce 1s infinite alternate; box-shadow: 0 4px 15px rgba(255,215,0,0.5); }
-            @keyframes bounce { from { transform: translateY(0); } to { transform: translateY(-5px); } }
+            body { background: #000; color: #fff; padding-bottom: 70px; }
+            .explore-header { padding: 15px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #222; position: sticky; top: 0; background: #000; z-index: 100; }
         </style>
-        <script>
-            function sendLiveComment(e) {
-                e.preventDefault();
-                const input = document.getElementById('liveCommentInput');
-                if(!input.value.trim()) return;
-                const chatArea = document.getElementById('chatArea');
-                const bubble = document.createElement('div');
-                bubble.className = 'chat-bubble';
-                bubble.innerHTML = '<b>${req.session.user.nickname}:</b> ' + input.value;
-                chatArea.appendChild(bubble);
-                chatArea.scrollTop = chatArea.scrollHeight;
-                input.value = '';
-            }
-            function sendGift(giftName) {
-                const chatArea = document.getElementById('chatArea');
-                const bubble = document.createElement('div');
-                bubble.className = 'chat-bubble';
-                bubble.style.background = 'rgba(254,44,85,0.6)';
-                bubble.innerHTML = '🎁 <b>${req.session.user.nickname}</b> hediye gönderdi: <b>' + giftName + '</b>';
-                chatArea.appendChild(bubble);
-                chatArea.scrollTop = chatArea.scrollHeight;
-            }
-        </script>
     </head>
     <body>
-        <div class="live-container">
-            <div style="position:absolute; width:100%; height:100%; background:${isPaused ? '#330000' : 'radial-gradient(circle, #222 0%, #000 100%)'}; display:flex; align-items:center; justify-content:center; flex-direction:column;">
-                <div style="font-size:70px; margin-bottom:10px;">${isPaused ? '⏸️' : '📹'}</div>
-                <div style="font-size:18px; font-weight:bold; color:${isPaused ? '#ff4d4d' : '#aaa'};">@${targetUsername} canlı yayını</div>
-                <div style="font-size:13px; color:#666; margin-top:5px;">${isPaused ? 'Yayıncı tarafından durduruldu' : 'Yayın akışı aktif'}</div>
-            </div>
-
-            ${liveInfo.chestCoins > 0 ? `<a href="/open-chest/${targetUsername}" class="chest-box-popup">🎁 Sandık Kutusu (${liveInfo.chestCoins} Jeton) - Aç!</a>` : ''}
-
-            <div class="live-top-bar">
-                <div class="live-host-badge">
-                    <div style="width:28px; height:28px; background:#FE2C55; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:bold; font-size:12px;">${liveInfo.nickname.charAt(0)}</div>
-                    <div>
-                        <div style="font-size:12px;">${liveInfo.nickname}</div>
-                        <div style="font-size:10px; color:#aaa;">👥 ${liveInfo.viewers} izleyici</div>
-                    </div>
-                    <span class="live-red-tag">${isPaused ? 'DURDURULDU' : 'CANLI'}</span>
-                </div>
-                
-                <div style="display:flex; align-items:center; gap:8px;">
-                    <div class="coin-badge" title="Jetonun">🪙 ${req.session.user.coins || 0}</div>
-                    ${isMyLive ? `
-                        <a href="/pause-live" style="background:#333; color:#fff; padding:6px 12px; border-radius:15px; font-size:12px; font-weight:bold;">${isPaused ? 'Devam Ettir' : 'Durdur'}</a>
-                        <a href="/end-live" style="background:#ff4d4d; color:#fff; padding:6px 12px; border-radius:15px; font-size:12px; font-weight:bold;">Kapat</a>
-                    ` : `<a href="/" style="background:rgba(0,0,0,0.6); color:#fff; padding:6px 12px; border-radius:15px; font-size:12px; font-weight:bold;">Çıkış</a>`}
-                </div>
-            </div>
-
-            <div class="live-chat-area" id="chatArea">
-                <div class="chat-bubble">👋 <b>Sistem:</b> Canlı yayına hoş geldiniz! Yayın yapan içerik üreticileri her 30 dakikada bir 50 ücretsiz jeton kazanır.</div>
-                <div class="chat-bubble">🔥 <b>ahmet99:</b> Yayın harika gidiyor hocam!</div>
-            </div>
-
-            ${isMyLive ? `
-            <div style="position:absolute; top:75px; left:15px; z-index:150;">
-                <form action="/drop-chest" method="POST" style="display:flex; gap:6px;">
-                    <select name="amount" style="background:#222; color:#fff; border:1px solid #444; border-radius:6px; padding:6px;">
-                        <option value="50">50 Jetonluk Sandık</option>
-                        <option value="100">100 Jetonluk Sandık</option>
-                        <option value="250">250 Jetonluk Sandık</option>
-                    </select>
-                    <button type="submit" style="background:#FFD700; color:#000; border:none; padding:6px 12px; border-radius:6px; font-weight:bold; cursor:pointer;">Sandık At 🎁</button>
-                </form>
-            </div>` : ''}
-
-            <form onsubmit="sendLiveComment(event)" class="live-bottom-bar">
-                <input type="text" id="liveCommentInput" class="live-input" placeholder="Yorum yaz veya soru sor..." autocomplete="off">
-                <div class="live-action-btn" onclick="sendGift('Gül 🌹')" title="Gül Gönder">🌹</div>
-                <div class="live-action-btn" onclick="sendGift('Aslan 🦁')" title="Aslan Gönder">🦁</div>
-            </form>
+        <div class="explore-header">
+            <h2 style="margin:0; font-size:20px;">Keşfet</h2>
+            <a href="/search" style="font-size:22px;">🔍</a>
         </div>
+
+        <div style="padding:15px;">
+            <h3 style="font-size:16px; margin-bottom:10px;">Trend Etiketler</h3>
+            <div style="display:flex; flex-wrap:wrap; gap:5px;">${tagsHTML}</div>
+        </div>
+
+        <div style="padding:15px;">
+            <h3 style="font-size:16px; margin-bottom:10px;">Trend Videolar</h3>
+            <div style="display:flex; gap:10px; overflow-x:auto; padding-bottom:10px;">${topVideosHTML || '<p style="color:#777; font-size:13px;">Henüz video yok.</p>'}</div>
+        </div>
+
+        ${getNavbar('explore', req.session.user.username, false)}
     </body>
     </html>`);
 });
@@ -1093,7 +970,7 @@ app.post('/send-msg/:targetUser', async (req, res) => {
     res.redirect('back');
 });
 
-// ANA SAYFA & TOPLULUK & CANLI YAYIN LİSTESİ
+// ANA SAYFA & TOPLULUK
 app.get('/', async (req, res) => {
     if (!req.session.user) {
         return res.redirect('/login');
@@ -1101,7 +978,6 @@ app.get('/', async (req, res) => {
 
     const feedType = req.query.feed || 'foryou';
     let videos = [];
-    let activeLives = [];
 
     if (isConnected) {
         if (feedType === 'community' || feedType === 'friends') {
@@ -1111,7 +987,6 @@ app.get('/', async (req, res) => {
         } else {
             videos = await videosCol.find({}).sort({ _id: -1 }).toArray();
         }
-        activeLives = await livesCol.find({}).sort({ _id: -1 }).toArray();
     }
 
     let isMod = req.session.user.username.toLowerCase() === 'tiktok';
@@ -1177,24 +1052,6 @@ app.get('/', async (req, res) => {
         </div>`;
     }
 
-    let livesModalHTML = '';
-    activeLives.forEach(l => {
-        let isPaused = l.status === 'paused';
-        livesModalHTML += `
-        <a href="/live/${l.username}" style="display:flex; align-items:center; justify-content:space-between; padding:12px 15px; border-bottom:1px solid #222; color:#fff;">
-            <div style="display:flex; align-items:center; gap:12px;">
-                <div style="width:45px; height:45px; background:linear-gradient(135deg, #25F4EE, #FE2C55); border-radius:50%; padding:2px; display:flex; align-items:center; justify-content:center;">
-                    <div style="width:100%; height:100%; background:#000; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:bold;">${isPaused ? '⏸️' : '🔴'}</div>
-                </div>
-                <div>
-                    <div style="font-weight:bold; font-size:15px;">${l.nickname} <span style="background:${isPaused ? '#333' : '#FE2C55'}; font-size:10px; padding:2px 6px; border-radius:4px; margin-left:6px;">${isPaused ? 'DURDURULDU' : 'CANLI'}</span></div>
-                    <div style="font-size:12px; color:#888;">@${l.username} • 👥 ${l.viewers} izleyici</div>
-                </div>
-            </div>
-            <span style="background:#FE2C55; color:#fff; padding:6px 14px; border-radius:15px; font-size:12px; font-weight:bold;">Katıl</span>
-        </a>`;
-    });
-
     res.send(`
     <!DOCTYPE html>
     <html lang="tr">
@@ -1208,7 +1065,6 @@ app.get('/', async (req, res) => {
             .top-tabs a.active { color: #fff; border-bottom: 2px solid #fff; padding-bottom: 4px; }
             
             .top-search-btn { position: fixed; top: 10px; right: 15px; z-index: 1005; color: #fff; font-size: 20px; display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 50%; background: rgba(0,0,0,0.3); }
-            .top-live-btn { position: fixed; top: 10px; left: 15px; z-index: 1005; color: #fff; font-size: 20px; display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 50%; background: rgba(254,44,85,0.8); cursor: pointer; text-shadow: 0 1px 2px #000; }
             
             .feed-scroll { height: 100vh; overflow-y: scroll; scroll-snap-type: y mandatory; -webkit-overflow-scrolling: touch; }
             .video-container { width: 100vw; height: 100vh; scroll-snap-align: start; position: relative; display: flex; justify-content: center; align-items: center; background: #000; }
@@ -1239,13 +1095,6 @@ app.get('/', async (req, res) => {
             .share-options { display: flex; gap: 20px; overflow-x: auto; padding: 10px 0; justify-content: space-around; }
             .share-item { display: flex; flex-direction: column; align-items: center; gap: 5px; font-size: 12px; color: #aaa; cursor: pointer; }
             .share-icon-circle { width: 50px; height: 50px; background: #333; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 20px; color: #fff; }
-
-            .lives-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 200000; justify-content: center; align-items: flex-end; }
-            .lives-content { background: #1a1a1a; color: #fff; width: 100%; max-height: 75vh; border-top-left-radius: 20px; border-top-right-radius: 20px; display: flex; flex-direction: column; overflow: hidden; }
-
-            /* Yayın Başlatma Uyarı & Geri Sayım Modalı */
-            .live-alert-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); z-index: 300000; justify-content: center; align-items: center; }
-            .live-alert-card { background: #1f1f1f; color: #fff; padding: 30px; border-radius: 16px; width: 90%; max-width: 380px; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,0.7); }
         </style>
         <script>
             let globalMutedState = true;
@@ -1282,50 +1131,6 @@ app.get('/', async (req, res) => {
                 closeShareModal();
             }
 
-            function openLivesModal() {
-                document.getElementById('livesModal').style.display = 'flex';
-            }
-            function closeLivesModal() {
-                document.getElementById('livesModal').style.display = 'none';
-            }
-
-            let countdownTimer = null;
-            function triggerLiveAlert() {
-                document.getElementById('livesModal').style.display = 'none';
-                document.getElementById('liveAlertModal').style.display = 'flex';
-                
-                let secondsLeft = 5;
-                const btn = document.getElementById('liveConfirmBtn');
-                const text = document.getElementById('countdownText');
-                
-                btn.disabled = true;
-                btn.style.opacity = '0.5';
-                btn.innerText = 'Lütfen bekleyin (' + secondsLeft + 's)';
-
-                if(countdownTimer) clearInterval(countdownTimer);
-
-                countdownTimer = setInterval(() => {
-                    secondsLeft--;
-                    if(secondsLeft > 0) {
-                        btn.innerText = 'Lütfen bekleyin (' + secondsLeft + 's)';
-                    } else {
-                        clearInterval(countdownTimer);
-                        btn.disabled = false;
-                        btn.style.opacity = '1';
-                        btn.innerText = 'Tamam - Yayın Başlat 🔴';
-                    }
-                }, 1000);
-            }
-
-            function closeLiveAlert() {
-                if(countdownTimer) clearInterval(countdownTimer);
-                document.getElementById('liveAlertModal').style.display = 'none';
-            }
-
-            function confirmStartLive() {
-                window.location.href = '/start-live';
-            }
-
             document.addEventListener("DOMContentLoaded", () => {
                 const containers = document.querySelectorAll('.video-container');
                 const observer = new IntersectionObserver((entries) => {
@@ -1346,8 +1151,6 @@ app.get('/', async (req, res) => {
         </script>
     </head>
     <body>
-        <div class="top-live-btn" onclick="openLivesModal()" title="Canlı Yayınlar">📡</div>
-        
         <div class="top-tabs">
             <a href="/?feed=community" class="${feedType === 'community' ? 'active' : ''}">Topluluk</a>
             <a href="/?feed=following" class="${feedType === 'following' ? 'active' : ''}">Takipte</a>
@@ -1358,34 +1161,6 @@ app.get('/', async (req, res) => {
 
         <div class="feed-scroll">
             ${feedHTML || '<div style="display:flex; justify-content:center; align-items:center; height:100vh; color:#666;">Hiç video bulunamadı.</div>'}
-        </div>
-
-        <div id="livesModal" class="lives-modal">
-            <div class="lives-content">
-                <div style="padding:15px; border-bottom:1px solid #222; display:flex; justify-content:space-between; align-items:center; font-weight:bold; font-size:16px;">
-                    <span>📡 Aktif Canlı Yayınlar</span>
-                    <span onclick="closeLivesModal()" style="cursor:pointer; font-size:22px;">✕</span>
-                </div>
-                <div style="padding:15px; background:#121212; display:flex; justify-content:space-between; align-items:center;">
-                    <span style="font-size:13px; color:#aaa;">Yayın aç, her 30 dk'da 50 jeton kazan!</span>
-                    <button onclick="triggerLiveAlert()" style="background:#FE2C55; color:#fff; border:none; padding:8px 16px; border-radius:8px; font-weight:bold; font-size:13px; cursor:pointer;">Yayın Aç 🔴</button>
-                </div>
-                <div style="overflow-y:auto; flex-grow:1;">
-                    ${livesModalHTML || '<div style="text-align:center; color:#777; padding:40px;">Şu an aktif canlı yayın bulunmuyor. İlk yayını sen aç!</div>'}
-                </div>
-            </div>
-        </div>
-
-        <!-- YAYIN BAŞLATMA UYARI VE GERİ SAYIM MODALI -->
-        <div id="liveAlertModal" class="live-alert-modal">
-            <div class="live-alert-card">
-                <h3 style="color:#FE2C55; margin-top:0;">Canlı Yayın Bilgilendirmesi 🔴</h3>
-                <p style="font-size:14px; color:#ddd; line-height:1.5;">
-                    Canlı yayın açarak izleyicilerinizle sohbet edebilir, sandık kutusu dağıtabilir ve <b>her 30 dakikada bir otomatik olarak 50 ücretsiz jeton</b> kazanabilirsiniz!<br><br>Yayına başlamak için lütfen güvenlik ve hazırlık için aşağıdaki sürenin dolmasını bekleyin.
-                </p>
-                <button id="liveConfirmBtn" onclick="confirmStartLive()" style="width:100%; background:#FE2C55; color:#fff; border:none; padding:12px; border-radius:8px; font-weight:bold; font-size:15px; cursor:pointer; margin-top:10px;">Tamam - Yayın Başlat 🔴</button>
-                <button onclick="closeLiveAlert()" style="width:100%; background:#333; color:#fff; border:none; padding:10px; border-radius:8px; font-weight:bold; font-size:13px; cursor:pointer; margin-top:8px;">İptal</button>
-            </div>
         </div>
 
         <div id="shareModal" class="share-modal">
