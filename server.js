@@ -102,6 +102,8 @@ app.get('/login', (req, res) => {
             input:focus { border-color: #FE2C55; }
             .btn-main { width: 100%; padding: 14px; background: #FE2C55; color: #fff; border: none; border-radius: 8px; font-weight: bold; font-size: 16px; cursor: pointer; transition: 0.2s; }
             .btn-main:hover { opacity: 0.9; }
+            .google-btn { width: 100%; padding: 12px; background: #2a2a2a; color: #fff; border: 1px solid #444; border-radius: 8px; font-weight: bold; font-size: 14px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 10px; }
+            .google-icon { width: 20px; height: 20px; background: conic-gradient(from -45deg, #ea4335 110deg, #4285f4 90deg 180deg, #34a853 180deg 270deg, #fbbc05 270deg); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: bold; color: #fff; }
             .auth-footer { margin-top: 20px; font-size: 14px; color: #888; }
             .auth-footer a { color: #25F4EE; font-weight: bold; }
         </style>
@@ -114,6 +116,7 @@ app.get('/login', (req, res) => {
                 <input type="password" name="password" placeholder="Şifre" required>
                 <button type="submit" class="btn-main">Giriş Yap</button>
             </form>
+            <button class="google-btn" onclick="window.location='/google-login'"><div class="google-icon">G</div> Google ile Devam Et</button>
             <div class="auth-footer">
                 Hesabın yok mu? <a href="/register">Kayıt ol</a>
             </div>
@@ -137,6 +140,8 @@ app.get('/register', (req, res) => {
             input:focus { border-color: #25F4EE; }
             .btn-main { width: 100%; padding: 14px; background: linear-gradient(90deg, #25F4EE, #FE2C55); color: #000; border: none; border-radius: 8px; font-weight: bold; font-size: 16px; cursor: pointer; transition: 0.2s; }
             .btn-main:hover { opacity: 0.9; }
+            .google-btn { width: 100%; padding: 12px; background: #2a2a2a; color: #fff; border: 1px solid #444; border-radius: 8px; font-weight: bold; font-size: 14px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 10px; }
+            .google-icon { width: 20px; height: 20px; background: conic-gradient(from -45deg, #ea4335 110deg, #4285f4 90deg 180deg, #34a853 180deg 270deg, #fbbc05 270deg); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: bold; color: #fff; }
             .auth-footer { margin-top: 20px; font-size: 14px; color: #888; }
             .auth-footer a { color: #FE2C55; font-weight: bold; }
         </style>
@@ -150,12 +155,42 @@ app.get('/register', (req, res) => {
                 <input type="password" name="password" placeholder="Şifre" required>
                 <button type="submit" class="btn-main">Kayıt Ol</button>
             </form>
+            <button class="google-btn" onclick="window.location='/google-login'"><div class="google-icon">G</div> Google ile Kaydol</button>
             <div class="auth-footer">
                 Zaten hesabın var mı? <a href="/login">Giriş yap</a>
             </div>
         </div>
     </body>
     </html>`);
+});
+
+// GOOGLE İLE GİRİŞ SİMÜLASYONU (OTOMATİK HESAP OLUŞTURMA VEYA GİRİŞ)
+app.get('/google-login', async (req, res) => {
+    if (!isConnected) return res.redirect('/login');
+    try {
+        let googleUser = await usersCol.findOne({ username: 'google_user' });
+        if (!googleUser) {
+            const hashedPassword = await bcrypt.hash('google12345', 10);
+            const result = await usersCol.insertOne({ username: 'google_user', nickname: 'Google Kullanıcısı', password: hashedPassword, bio: 'Google hesabı ile bağlandı 🌐', avatar: '', banner: '' });
+            googleUser = await usersCol.findOne({ _id: result.insertedId });
+        }
+        req.session.user = googleUser;
+        res.redirect('/');
+    } catch (err) {
+        res.redirect('/login');
+    }
+});
+
+// HESAP DEĞİŞTİRME OTURUM GEÇİŞİ
+app.get('/switch-account/:id', async (req, res) => {
+    if (!isConnected) return res.redirect('/login');
+    try {
+        const targetUser = await usersCol.findOne({ _id: new ObjectId(req.params.id) });
+        if (targetUser) {
+            req.session.user = targetUser;
+        }
+    } catch (err) { console.error(err); }
+    res.redirect('/');
 });
 
 app.post('/register', async (req, res) => {
@@ -327,7 +362,6 @@ app.post('/comment/:id', upload.single('image'), async (req, res) => {
     res.redirect('back');
 });
 
-// @tiktok HESABI İÇİN GELİŞMİŞ MOD SİLME YETKİSİ
 app.get('/delete-video/:id', async (req, res) => {
     if (!req.session.user || !isConnected) return res.redirect('/login');
     try {
@@ -464,11 +498,11 @@ app.get('/profile/:username', async (req, res) => {
 
     let accountsHTML = '';
     allUsers.forEach(acc => {
-        let isCurrent = acc.username === targetUser.username;
+        let isCurrent = acc._id.toString() === req.session.user._id.toString();
         let accAvatar = acc.avatar ? `<img src="${acc.avatar}" style="width:100%; height:100%; border-radius:50%; object-fit:cover;">` : acc.nickname.charAt(0).toUpperCase();
         let accVerified = acc.username.toLowerCase() === 'tiktok' ? '<span class="verified-badge">✔</span>' : '';
         accountsHTML += `
-        <a href="/profile/${acc.username}" style="display:flex; align-items:center; justify-content:space-between; padding:12px 15px; border-bottom:1px solid #eee; color:#000;">
+        <a href="/switch-account/${acc._id}" style="display:flex; align-items:center; justify-content:space-between; padding:12px 15px; border-bottom:1px solid #eee; color:#000;">
             <div style="display:flex; align-items:center; gap:12px;">
                 <div style="width:40px; height:40px; background:#FE2C55; border-radius:50%; display:flex; align-items:center; justify-content:center; color:#fff; font-weight:bold; overflow:hidden;">${accAvatar}</div>
                 <div>
@@ -476,7 +510,7 @@ app.get('/profile/:username', async (req, res) => {
                     <div style="font-size:12px; color:#888;">@${acc.username}</div>
                 </div>
             </div>
-            ${isCurrent ? '<span style="color:#FE2C55; font-size:20px; font-weight:bold;">✓</span>' : ''}
+            ${isCurrent ? '<span style="color:#FE2C55; font-size:20px; font-weight:bold;">✓</span>' : '<span style="font-size:12px; color:#25F4EE; font-weight:bold;">Geçiş Yap</span>'}
         </a>`;
     });
 
@@ -550,7 +584,10 @@ app.get('/profile/:username', async (req, res) => {
                 <div><span>${totalLikes}</span>Beğeni</div>
             </div>
             <p style="color:#ccc; font-size:13px; margin-bottom:15px;">${targetUser.bio}</p>
-            ${isMe ? `<button onclick="document.getElementById('editModal').style.display='flex'" style="padding:8px 25px; background:#2f2f2f; color:#fff; border:none; border-radius:6px; font-weight:bold; cursor:pointer;">Profili Düzenle</button>` : `<a href="/follow/${targetUser._id}" style="padding:8px 25px; background:${isFollowing ? '#333' : '#FE2C55'}; color:#fff; border-radius:6px; font-weight:bold;">${isFollowing ? 'Takiptesin' : 'Takip Et'}</a>`}
+            <div style="display:flex; gap:10px; justify-content:center;">
+                ${isMe ? `<button onclick="document.getElementById('editModal').style.display='flex'" style="padding:8px 25px; background:#2f2f2f; color:#fff; border:none; border-radius:6px; font-weight:bold; cursor:pointer;">Profili Düzenle</button>` : `<a href="/follow/${targetUser._id}" style="padding:8px 25px; background:${isFollowing ? '#333' : '#FE2C55'}; color:#fff; border-radius:6px; font-weight:bold; display:flex; align-items:center;">${isFollowing ? 'Takiptesin' : 'Takip Et'}</a>`}
+                ${isMe ? `<a href="/logout" style="padding:8px 15px; background:#333; color:#ff4d4d; border-radius:6px; font-weight:bold; display:flex; align-items:center; font-size:13px;">Çıkış Yap</a>` : ''}
+            </div>
         </div>
 
         <div class="profile-tabs">
