@@ -13,8 +13,9 @@ const PORT = process.env.PORT || 3000;
 
 const MONGO_URL = process.env.MONGO_URL || "mongodb+srv://cinarsucu04_db_user:46vjLI7sNK7djBeE@cluster0.utveet0.mongodb.net/?retryWrites=true&w=majority";
 
-let db, usersCol, videosCol, commentsCol, followsCol, likesCol, favoritesCol, storiesCol, messagesCol, groupsCol, searchesCol, analyticsCol;
+let db, usersCol, videosCol, commentsCol, followsCol, likesCol, favoritesCol, storiesCol, messagesCol, groupsCol, searchesCol, analyticsCol, announcementsCol, logsCol;
 let isConnected = false;
+let isMaintenance = false; // Bakım Modu
 
 MongoClient.connect(MONGO_URL)
     .then(client => {
@@ -30,6 +31,8 @@ MongoClient.connect(MONGO_URL)
         groupsCol = db.collection('groups');
         searchesCol = db.collection('searches');
         analyticsCol = db.collection('analytics');
+        announcementsCol = db.collection('announcements');
+        logsCol = db.collection('logs');
         isConnected = true;
         console.log("MongoDB veritabanı bağlantısı başarılı!");
     })
@@ -51,6 +54,32 @@ app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
 app.use(express.static('public'));
 app.use(session({ secret: 'tiktok-cloud-key', resave: false, saveUninitialized: true }));
+
+// Bot ve Spam İstek Sınırı (Rate Limiting)
+const requestTracker = {};
+app.use((req, res, next) => {
+    const ip = req.ip || req.connection.remoteAddress;
+    const now = Date.now();
+    if (!requestTracker[ip]) requestTracker[ip] = { count: 0, time: now };
+
+    if (now - requestTracker[ip].time < 60000) {
+        requestTracker[ip].count++;
+        if (requestTracker[ip].count > 300) {
+            return res.status(429).send("<h2 style='text-align:center; margin-top:20vh; color:#FE2C55;'>⚠️ Bot Koruması Devrede</h2><p style='text-align:center; color:#888;'>Çok fazla hızlı istek algılandı.</p>");
+        }
+    } else {
+        requestTracker[ip] = { count: 1, time: now };
+    }
+    next();
+});
+
+// Bakım Modu Kontrolü
+app.use((req, res, next) => {
+    if (isMaintenance && req.session?.user?.username?.toLowerCase() !== 'tiktok' && !req.path.startsWith('/login') && !req.path.startsWith('/register') && !req.path.startsWith('/mod-panel')) {
+        return res.status(503).send("<h2 style='text-align:center; margin-top:25vh; color:#FE2C55;'>🛠️ Platform Bakımda</h2><p style='text-align:center; color:#888;'>Şu anda sistem güncellenmektedir. Lütfen daha sonra tekrar deneyin.</p>");
+    }
+    next();
+});
 
 async function getNavbar(activeTab, user, isFriendsTab) {
     if (!user || !isConnected) return '';
@@ -148,7 +177,7 @@ app.get('/register', (req, res) => {
             .auth-card { width: 100%; max-width: 380px; padding: 30px; background: #1a1a1a; border-radius: 16px; box-shadow: 0 8px 30px rgba(0,0,0,0.5); text-align: center; }
             h2 { margin-bottom: 25px; font-size: 24px; background: linear-gradient(90deg, #25F4EE, #FE2C55); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
             input { width: 100%; padding: 14px; margin-bottom: 15px; background: #2a2a2a; border: 1px solid #333; border-radius: 8px; color: #fff; font-size: 15px; outline: none; }
-            input:focus { border-color: #25F4EE; }
+            input:focus { border-color: #FE2C55; }
             .btn-main { width: 100%; padding: 14px; background: linear-gradient(90deg, #25F4EE, #FE2C55); color: #000; border: none; border-radius: 8px; font-weight: bold; font-size: 16px; cursor: pointer; transition: 0.2s; }
             .btn-main:hover { opacity: 0.9; }
             .auth-footer { margin-top: 20px; font-size: 14px; color: #888; }
@@ -261,7 +290,7 @@ app.get('/explore', async (req, res) => {
     </html>`);
 });
 
-// @tiktok HESABINA ÖZEL MODERATÖR PANELİ
+// @tiktok HESABINA ÖZEL MODERATÖR & YÖNETİM PANELİ (Gelişmiş Özelliklerle Tam)
 app.get('/mod-panel', async (req, res) => {
     if (!req.session.user || !isConnected) return res.redirect('/login');
     if (req.session.user.username.toLowerCase() !== 'tiktok') {
@@ -273,16 +302,20 @@ app.get('/mod-panel', async (req, res) => {
     const totalReports = await commentsCol.countDocuments({});
     const allUsers = await usersCol.find({}).project({ password: 0 }).toArray();
     const allVideos = await videosCol.find({}).sort({ createdAt: -1 }).limit(20).toArray();
+    const systemLogs = await logsCol ? await logsCol.find({}).sort({ createdAt: -1 }).limit(10).toArray() : [];
+
+    const memoryUsage = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2);
+    const uptimeMinutes = (process.uptime() / 60).toFixed(1);
 
     let usersTableHTML = '';
     allUsers.forEach(u => {
         usersTableHTML += `
         <tr style="border-bottom:1px solid #333;">
-            <td style="padding:10px;">@${u.username}</td>
+            <td style="padding:10px;">@${u.username} ${u.isVerified ? '⭐' : ''}</td>
             <td style="padding:10px;">${u.nickname}</td>
             <td style="padding:10px;">
                 <a href="/mod/ban/${u._id}" onclick="return confirm('@${u.username} kullanıcısına ban atılsın mı?')" style="background:#ff4d4d; color:#fff; padding:4px 8px; border-radius:4px; font-size:12px;">Banla 🚫</a>
-                <a href="/mod/verify/${u._id}" style="background:#20D5EC; color:#000; padding:4px 8px; border-radius:4px; font-size:12px; font-weight:bold;">Mavi Tik ⭐</a>
+                <a href="/mod/verify/${u._id}" style="background:#20D5EC; color:#000; padding:4px 8px; border-radius:4px; font-size:12px; font-weight:bold;">${u.isVerified ? 'Tik Al' : 'Mavi Tik ⭐'}</a>
             </td>
         </tr>`;
     });
@@ -295,10 +328,14 @@ app.get('/mod-panel', async (req, res) => {
             <td style="padding:10px;">@${v.username}</td>
             <td style="padding:10px; max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${v.caption || 'Açıklama yok'}</td>
             <td style="padding:10px;">
+                <a href="/mod/pin-video/${v._id}" style="background:#25F4EE; color:#000; padding:4px 6px; border-radius:4px; font-size:11px; font-weight:bold;">${v.isPinned ? 'Sabiti Kaldır' : 'Sabitle 📌'}</a>
                 <a href="/delete-video/${v._id}" onclick="return confirm('Bu videoyu sistemden kaldırmak istiyor musunuz?')" style="background:#ff4d4d; color:#fff; padding:4px 8px; border-radius:4px; font-size:12px;">Kaldır 🗑️</a>
             </td>
         </tr>`;
     });
+
+    let logsHTML = '';
+    systemLogs.forEach(l => { logsHTML += `<div style="padding:4px 0; border-bottom:1px solid #222; font-size:11px; color:#aaa;">[${new Date(l.createdAt).toLocaleTimeString()}] <b>@${l.admin}</b>: ${l.action}</div>`; });
 
     const navbarHTML = await getNavbar('mod', req.session.user, false);
 
@@ -327,6 +364,25 @@ app.get('/mod-panel', async (req, res) => {
             <div class="stat-card"><h3>${totalUsers}</h3><p>Toplam Kullanıcı</p></div>
             <div class="stat-card"><h3>${totalVideos}</h3><p>Yüklenen Video</p></div>
             <div class="stat-card"><h3>${totalReports}</h3><p>İçerik / Yorum</p></div>
+        </div>
+
+        <div class="section-box" style="border-color:#25F4EE;">
+            <h3 style="margin-top:0; color:#25F4EE; font-size:15px;">📢 Herkese Açık Global Duyuru Yayınla</h3>
+            <form action="/mod/announcement" method="POST" style="display:flex; flex-direction:column; gap:10px;">
+                <input type="text" name="announcementText" placeholder="Örn: Selam herkese sistem güncellendi!" required style="padding:10px; background:#2a2a2a; border:1px solid #444; border-radius:6px; color:#fff; outline:none;">
+                <button type="submit" class="btn-action" style="background:#25F4EE; color:#000; width:100%;">Duyuruyu Yayınla (Herkesin Önünde Çıksın)</button>
+            </form>
+        </div>
+
+        <div class="section-box">
+            <h3 style="margin-top:0; font-size:15px;">⚙️ Sunucu & Bakım Yönetimi</h3>
+            <div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:10px; color:#aaa;">
+                <div>RAM: <b>${memoryUsage} MB</b></div>
+                <div>Çalışma: <b>${uptimeMinutes} dk</b></div>
+                <div>Bakım: <b style="color:${isMaintenance ? '#FE2C55' : '#25F4EE'}">${isMaintenance ? 'AÇIK' : 'KAPALI'}</b></div>
+            </div>
+            <a href="/mod/toggle-maintenance" class="btn-action" style="background:${isMaintenance ? '#25F4EE' : '#ff4d4d'}; color:${isMaintenance ? '#000' : '#fff'}; text-align:center; display:block;">${isMaintenance ? 'Bakım Modunu Kapat' : 'Bakım Modunu Aç (Siteyi Kilitle)'}</a>
+            <a href="/mod/backup" class="btn-action" style="background:#333; color:#fff; text-align:center; display:block; margin-top:8px;">📥 Veritabanı Yedeğini İndir (JSON)</a>
         </div>
 
         <div class="section-box">
@@ -366,19 +422,65 @@ app.get('/mod-panel', async (req, res) => {
     </html>`);
 });
 
-app.get('/mod/ban/:id', async (req, res) => {
+app.post('/mod/announcement', async (req, res) => {
     if (!req.session.user || req.session.user.username.toLowerCase() !== 'tiktok') return res.redirect('/login');
-    try {
-        await usersCol.deleteOne({ _id: new ObjectId(req.params.id) });
-        res.send("<script>alert('Kullanıcı banlandı ve sistemden silindi.'); window.location='/mod-panel';</script>");
-    } catch(e) { res.redirect('/mod-panel'); }
+    const text = req.body.announcementText;
+    if (text) {
+        if (!announcementsCol) announcementsCol = db.collection('announcements');
+        if (!logsCol) logsCol = db.collection('logs');
+        await announcementsCol.deleteMany({});
+        await announcementsCol.insertOne({ text, createdAt: new Date() });
+        await logsCol.insertOne({ admin: req.session.user.username, action: `Duyuru: "${text}"`, createdAt: new Date() });
+    }
+    res.redirect('/mod-panel');
+});
+
+app.get('/mod/toggle-maintenance', async (req, res) => {
+    if (!req.session.user || req.session.user.username.toLowerCase() !== 'tiktok') return res.redirect('/login');
+    isMaintenance = !isMaintenance;
+    if (!logsCol) logsCol = db.collection('logs');
+    await logsCol.insertOne({ admin: req.session.user.username, action: `Bakım modu: ${isMaintenance}`, createdAt: new Date() });
+    res.redirect('/mod-panel');
 });
 
 app.get('/mod/verify/:id', async (req, res) => {
     if (!req.session.user || req.session.user.username.toLowerCase() !== 'tiktok') return res.redirect('/login');
     try {
-        res.send("<script>alert('Kullanıcıya resmi rozet tanımlandı.'); window.location='/mod-panel';</script>");
+        const user = await usersCol.findOne({ _id: new ObjectId(req.params.id) });
+        if (user) {
+            const newStatus = !user.isVerified;
+            await usersCol.updateOne({ _id: new ObjectId(req.params.id) }, { $set: { isVerified: newStatus } });
+        }
+        res.redirect('/mod-panel');
     } catch(e) { res.redirect('/mod-panel'); }
+});
+
+app.get('/mod/ban/:id', async (req, res) => {
+    if (!req.session.user || req.session.user.username.toLowerCase() !== 'tiktok') return res.redirect('/login');
+    try {
+        await usersCol.deleteOne({ _id: new ObjectId(req.params.id) });
+        res.redirect('/mod-panel');
+    } catch(e) { res.redirect('/mod-panel'); }
+});
+
+app.get('/mod/pin-video/:id', async (req, res) => {
+    if (!req.session.user || req.session.user.username.toLowerCase() !== 'tiktok') return res.redirect('/login');
+    try {
+        const video = await videosCol.findOne({ _id: new ObjectId(req.params.id) });
+        if (video) {
+            await videosCol.updateOne({ _id: new ObjectId(req.params.id) }, { $set: { isPinned: !video.isPinned } });
+        }
+        res.redirect('/mod-panel');
+    } catch(e) { res.redirect('/mod-panel'); }
+});
+
+app.get('/mod/backup', async (req, res) => {
+    if (!req.session.user || req.session.user.username.toLowerCase() !== 'tiktok') return res.redirect('/login');
+    const users = await usersCol.find({}).project({ password: 0 }).toArray();
+    const videos = await videosCol.find({}).toArray();
+    res.setHeader('Content-disposition', 'attachment; filename=tiktok_backup.json');
+    res.setHeader('Content-type', 'application/json');
+    res.send(JSON.stringify({ users, videos, date: new Date() }, null, 2));
 });
 
 app.get('/upload-story-page', async (req, res) => {
@@ -529,7 +631,7 @@ app.post('/upload', upload.single('video'), async (req, res) => {
             videoSpeed: req.body.videoSpeed || '1.0',
             greenScreen: req.body.greenScreen === 'yes',
             views: 0,
-            likes: 0, favorites: 0, shares: 0, createdAt: new Date() 
+            likes: 0, favorites: 0, shares: 0, isPinned: false, createdAt: new Date() 
         });
         res.redirect('/');
     } catch (err) { res.status(500).send("Hata: " + err.message); }
@@ -667,6 +769,7 @@ app.get('/profile/:username', async (req, res) => {
     let isMe = req.session.user._id.toString() === targetUser._id.toString();
 
     if (!isMe && !targetUser.hideVisitors) {
+        if (!analyticsCol) analyticsCol = db.collection('analytics');
         await analyticsCol.updateOne(
             { profile_id: targetUser._id, visitor_username: req.session.user.username },
             { $set: { visitor_nickname: req.session.user.nickname, visitedAt: new Date() } },
@@ -692,7 +795,7 @@ app.get('/profile/:username', async (req, res) => {
     const followersCount = await followsCol.countDocuments({ following_id: targetUser._id });
     const followingCount = await followsCol.countDocuments({ follower_id: targetUser._id });
     const followCheck = await followsCol.findOne({ follower_id: new ObjectId(req.session.user._id), following_id: targetUser._id });
-    const recentVisitors = await analyticsCol.find({ profile_id: targetUser._id }).sort({ visitedAt: -1 }).limit(10).toArray();
+    const recentVisitors = analyticsCol ? await analyticsCol.find({ profile_id: targetUser._id }).sort({ visitedAt: -1 }).limit(10).toArray() : [];
     
     let totalLikesAgg = await videosCol.aggregate([{ $match: { user_id: targetUser._id } }, {$group: { _id: null, total: { $sum: "$likes" } } }]).toArray();
     let totalLikes = totalLikesAgg.length > 0 ? totalLikesAgg[0].total : 0;
@@ -1338,7 +1441,7 @@ app.post('/send-group-msg/:groupId', async (req, res) => {
     res.redirect('back');
 });
 
-// ANA SAYFA & TOPLULUK
+// ANA SAYFA & TOPLULUK & GLOBAL DUYURU BANNER'I
 app.get('/', async (req, res) => {
     if (!req.session.user) {
         return res.redirect('/login');
@@ -1353,10 +1456,11 @@ app.get('/', async (req, res) => {
             const followingIds = follows.map(f => f.following_id);
             videos = await videosCol.find({ user_id: { $in: followingIds } }).sort({ _id: -1 }).toArray();
         } else {
-            videos = await videosCol.find({}).sort({ likes: -1, _id: -1 }).toArray();
+            videos = await videosCol.find({}).sort({ isPinned: -1, likes: -1, _id: -1 }).toArray();
         }
     }
 
+    const activeAnnouncement = isConnected && announcementsCol ? await announcementsCol.findOne({}) : null;
     let isMod = req.session.user.username.toLowerCase() === 'tiktok';
 
     let feedHTML = '';
@@ -1378,7 +1482,7 @@ app.get('/', async (req, res) => {
         });
 
         let formattedCaption = (v.caption || '').replace(/(#\w+)/g, '<a href="/search?q=$1" style="color:#25F4EE; font-weight:bold;">$1</a>');
-        let authorVerified = v.username.toLowerCase() === 'tiktok' ? '<span class="verified-badge">✔</span>' : '';
+        let authorVerified = (v.username.toLowerCase() === 'tiktok' || v.isVerified) ? '<span class="verified-badge">✔</span>' : '';
         let canDeleteVideo = (v.username.toLowerCase() === req.session.user.username.toLowerCase()) || isMod;
 
         feedHTML += `
@@ -1389,7 +1493,7 @@ app.get('/', async (req, res) => {
 
             <div class="video-info">
                 <a href="/profile/${v.username}" style="font-weight: bold; font-size: 15px; text-shadow: 0 1px 2px #000;">@${v.username} ${authorVerified}</a>
-                <p style="margin: 5px 0; font-size: 14px; text-shadow: 0 1px 2px #000;">${formattedCaption}</p>
+                <p style="margin: 5px 0; font-size: 14px; text-shadow: 0 1px 2px #000;">${formattedCaption} ${v.isPinned ? '<b>[📌 Sabit]</b>' : ''}</p>
                 ${v.productLink ? `<a href="${v.productLink}" target="_blank" style="display:inline-block; background:rgba(254,44,85,0.8); color:#fff; padding:4px 10px; border-radius:4px; font-size:12px; margin-top:4px; font-weight:bold;">🛒 Ürünü İncele / Satın Al</a>` : ''}
                 <p style="margin: 0; font-size: 12px; color: #ddd; text-shadow: 0 1px 2px #000;">🎵 ${v.song} (Ses Efekti: ${v.voiceEffect || 'Normal'})</p>
             </div>
@@ -1527,6 +1631,8 @@ app.get('/', async (req, res) => {
         </script>
     </head>
     <body>
+        ${activeAnnouncement ? `<div style="position:fixed; top:45px; left:0; width:100%; background:linear-gradient(90deg,#FE2C55,#25F4EE); color:#000; padding:10px 15px; font-weight:bold; font-size:13px; z-index:9999; text-align:center; box-shadow:0 2px 10px rgba(0,0,0,0.5);">📢 DUYURU: ${activeAnnouncement.text}</div>` : ''}
+
         <div class="top-tabs">
             <a href="/?feed=community" class="${feedType === 'community' ? 'active' : ''}">Topluluk</a>
             <a href="/?feed=following" class="${feedType === 'following' ? 'active' : ''}">Takipte</a>
