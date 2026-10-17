@@ -482,7 +482,7 @@ app.get('/share/:id', async (req, res) => {
 
 app.get('/follow/:id', async (req, res) => {
     if (!req.session.user || !isConnected) return res.redirect('/login');
-    const followerId = req.session.user._id;
+    const followerId = new ObjectId(req.session.user._id);
     const followingId = new ObjectId(req.params.id);
 
     const existingFollow = await followsCol.findOne({ follower_id: followerId, following_id: followingId });
@@ -599,11 +599,11 @@ app.get('/profile/:username', async (req, res) => {
     } else {
         if (isFollowing) {
             actionButtonsHTML = `
-            <a href="/follow/${targetUser._id}" style="padding:8px 20px; background:#333; color:#fff; border-radius:6px; font-weight:bold; display:flex; align-items:center;">Takip ediliyor</a>
-            <a href="/chat/${targetUser.username}" style="padding:8px 20px; background:#FE2C55; color:#fff; border-radius:6px; font-weight:bold; display:flex; align-items:center;">Mesajlar</a>`;
+            <a href="/follow/${targetUser._id}" style="padding:8px 20px; background:#333; color:#fff; border-radius:6px; font-weight:bold; display:flex; align-items:center; font-size:13px;">Takip ediliyor</a>
+            <a href="/chat/${targetUser.username}" style="padding:8px 20px; background:#FE2C55; color:#fff; border-radius:6px; font-weight:bold; display:flex; align-items:center; font-size:13px;">Mesajlar</a>`;
         } else {
             actionButtonsHTML = `
-            <a href="/follow/${targetUser._id}" style="padding:8px 25px; background:#FE2C55; color:#fff; border-radius:6px; font-weight:bold; display:flex; align-items:center;">Takip Et</a>`;
+            <a href="/follow/${targetUser._id}" style="padding:8px 25px; background:#FE2C55; color:#fff; border-radius:6px; font-weight:bold; display:flex; align-items:center; font-size:13px;">Takip Et</a>`;
         }
     }
 
@@ -848,11 +848,9 @@ app.get('/search', async (req, res) => {
 app.get('/inbox', async (req, res) => {
     if (!req.session.user || !isConnected) return res.redirect('/login');
     const myUsername = req.session.user.username;
-    const myUserId = new ObjectId(req.session.user._id);
 
     const stories = await storiesCol.find({}).sort({ _id: -1 }).toArray();
 
-    // Sadece kullanıcıyla mesajlaşması bulunan kişileri veya grupları gelen kutusunda göster
     const messagesList = await messagesCol.find({ $or: [{ sender: myUsername }, { receiver: myUsername }] }).toArray();
     let chattedUsernames = new Set();
     messagesList.forEach(m => {
@@ -872,7 +870,6 @@ app.get('/inbox', async (req, res) => {
 
     let inboxListHTML = '';
     
-    // Grupları listeye ekle
     myGroups.forEach(g => {
         inboxListHTML += `
         <a href="/group-chat/${g._id}" style="display:flex; align-items:center; justify-content:space-between; padding:12px 15px; border-bottom:1px solid #1a1a1a;">
@@ -884,7 +881,6 @@ app.get('/inbox', async (req, res) => {
         </a>`;
     });
 
-    // Mesajlaşılan kişileri listeye ekle
     chattedUsers.forEach(u => {
         inboxListHTML += `
         <a href="/chat/${u.username}" style="display:flex; align-items:center; justify-content:space-between; padding:12px 15px; border-bottom:1px solid #1a1a1a;">
@@ -987,7 +983,6 @@ app.get('/inbox', async (req, res) => {
 
         ${inboxListHTML || '<p style="text-align:center; color:#888; padding:40px;">Henüz aktif bir mesajlaşmanız veya grubunuz yok. Profillerden "Mesajlar" butonuna basarak sohbet başlatabilirsiniz.</p>'}
         
-        <!-- GRUP KURMA MODALI -->
         <div id="groupModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); z-index:200000; justify-content:center; align-items:center;">
             <div style="background:#1f1f1f; padding:25px; border-radius:12px; width:340px; text-align:center; color:#fff;">
                 <h3>Sohbet Grubu Kur</h3>
@@ -1005,15 +1000,13 @@ app.get('/inbox', async (req, res) => {
     </html>`);
 });
 
-// GRUP OLUŞTURMA ROUTE
 app.post('/create-group', async (req, res) => {
     if (!req.session.user || !isConnected) return res.redirect('/login');
     const { groupName, members } = req.body;
     if (!groupName || !members) return res.redirect('/inbox');
 
     let memberList = members.split(',').map(m => m.trim().toLowerCase());
-    memberList.push(req.session.user.username.toLowerCase()); // Grubu kuranı ekle
-    // Benzersiz yap
+    memberList.push(req.session.user.username.toLowerCase());
     memberList = Array.from(new Set(memberList));
 
     await groupsCol.insertOne({
@@ -1026,7 +1019,6 @@ app.post('/create-group', async (req, res) => {
     res.redirect('/inbox');
 });
 
-// BİREBİR SOHBET ROUTE
 app.get('/chat/:targetUser', async (req, res) => {
     if (!req.session.user || !isConnected) return res.redirect('/login');
     const target = await usersCol.findOne({ username: req.params.targetUser.toLowerCase() });
@@ -1040,7 +1032,7 @@ app.get('/chat/:targetUser', async (req, res) => {
         const isMe = m.sender === myUser;
         chatHTML += `
         <div style="display:flex; justify-content:${isMe ? 'flex-end' : 'flex-start'}; margin-bottom:12px;">
-            <div style="max-width:75%; background:${isMe ? '#FE2C55' : '#f1f1f2'}; color:${isMe ? '#fff' : '#000'}; padding:10px 16px; border-radius:18px; font-size:14px; line-height:1.4;">
+            <div style="max-width:75%; background:${isMe ? '#FE2C55' : '#222'}; color:#fff; padding:10px 16px; border-radius:18px; font-size:14px; line-height:1.4;">
                 ${m.text}
             </div>
         </div>`;
@@ -1116,7 +1108,6 @@ app.post('/send-msg/:targetUser', async (req, res) => {
     res.redirect('back');
 });
 
-// GRUP SOHBET ROUTE
 app.get('/group-chat/:groupId', async (req, res) => {
     if (!req.session.user || !isConnected) return res.redirect('/login');
     try {
@@ -1385,7 +1376,7 @@ app.get('/', async (req, res) => {
         <div class="top-tabs">
             <a href="/?feed=community" class="${feedType === 'community' ? 'active' : ''}">Topluluk</a>
             <a href="/?feed=following" class="${feedType === 'following' ? 'active' : ''}">Takipte</a>
-            <a href="/?feed=foryou" class="${feedType === 'fory0u' ? 'active' : ''}">Sizin İçin</a>
+            <a href="/?feed=foryou" class="${feedType === 'foryou' ? 'active' : ''}">Sizin İçin</a>
         </div>
 
         <a href="/search" class="top-search-btn">🔍</a>
