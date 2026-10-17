@@ -7,7 +7,6 @@ const multer = require('multer');
 const fs = require('fs');
 const path = require('path');
 const https = require('https');
-const morgan = require('morgan');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -53,14 +52,10 @@ app.use(bodyParser.json());
 app.use(express.static('public'));
 app.use(session({ secret: 'tiktok-cloud-key', resave: false, saveUninitialized: true }));
 
-// Siteye girenleri konsola loglar
-app.use(morgan(':remote-addr - :remote-user [:date[clf]] ":method :url HTTP/:http-version" :status :res[content-length]'));
-
 async function getNavbar(activeTab, user, isFriendsTab) {
     if (!user || !isConnected) return '';
     const isTikTokAdmin = user.username.toLowerCase() === 'tiktok';
     
-    // Okunmamış mesaj sayısını hesapla
     const unreadCount = await messagesCol.countDocuments({ receiver: user.username, isRead: { $ne: true } });
     const badgeText = unreadCount > 99 ? '+99' : unreadCount;
 
@@ -1171,7 +1166,6 @@ app.get('/chat/:targetUser', async (req, res) => {
 
     const myUser = req.session.user.username;
 
-    // Sohbet açıldığında bu kullanıcıdan gelen mesajları okundu olarak işaretle
     await messagesCol.updateMany(
         { receiver: myUser, sender: target.username, isRead: { $ne: true } },
         { $set: { isRead: true } }
