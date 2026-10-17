@@ -13,7 +13,7 @@ const PORT = process.env.PORT || 3000;
 
 const MONGO_URL = process.env.MONGO_URL || "mongodb+srv://cinarsucu04_db_user:46vjLI7sNK7djBeE@cluster0.utveet0.mongodb.net/?retryWrites=true&w=majority";
 
-let db, usersCol, videosCol, commentsCol, followsCol, likesCol, favoritesCol, storiesCol, messagesCol, searchesCol, analyticsCol;
+let db, usersCol, videosCol, commentsCol, followsCol, likesCol, favoritesCol, storiesCol, messagesCol, groupsCol, searchesCol, analyticsCol;
 let isConnected = false;
 
 MongoClient.connect(MONGO_URL)
@@ -27,6 +27,7 @@ MongoClient.connect(MONGO_URL)
         favoritesCol = db.collection('favorites');
         storiesCol = db.collection('stories');
         messagesCol = db.collection('messages');
+        groupsCol = db.collection('groups');
         searchesCol = db.collection('searches');
         analyticsCol = db.collection('analytics');
         isConnected = true;
@@ -485,8 +486,11 @@ app.get('/follow/:id', async (req, res) => {
     const followingId = new ObjectId(req.params.id);
 
     const existingFollow = await followsCol.findOne({ follower_id: followerId, following_id: followingId });
-    if (!existingFollow) { await followsCol.insertOne({ follower_id: followerId, following_id: followingId }); } 
-    else { await followsCol.deleteOne({ follower_id: followerId, following_id: followingId }); }
+    if (!existingFollow) { 
+        await followsCol.insertOne({ follower_id: followerId, following_id: followingId }); 
+    } else { 
+        await followsCol.deleteOne({ follower_id: followerId, following_id: followingId }); 
+    }
     res.redirect('back');
 });
 
@@ -588,6 +592,21 @@ app.get('/profile/:username', async (req, res) => {
     let avatarHTML = targetUser.avatar ? `<img src="${targetUser.avatar}" style="width:100%; height:100%; border-radius:50%; object-fit:cover;">` : targetUser.nickname.charAt(0).toUpperCase();
     let verifiedBadgeHTML = isTargetTikTok ? '<span class="verified-badge" title="Resmi Hesap">✔</span>' : '';
 
+    let actionButtonsHTML = '';
+    if (isMe) {
+        actionButtonsHTML = `<button onclick="document.getElementById('editModal').style.display='flex'" style="padding:8px 25px; background:#2f2f2f; color:#fff; border:none; border-radius:6px; font-weight:bold; cursor:pointer;">Profili Düzenle</button>
+        <a href="/logout" style="padding:8px 15px; background:#333; color:#ff4d4d; border-radius:6px; font-weight:bold; display:flex; align-items:center; font-size:13px;">Çıkış Yap</a>`;
+    } else {
+        if (isFollowing) {
+            actionButtonsHTML = `
+            <a href="/follow/${targetUser._id}" style="padding:8px 20px; background:#333; color:#fff; border-radius:6px; font-weight:bold; display:flex; align-items:center;">Takip ediliyor</a>
+            <a href="/chat/${targetUser.username}" style="padding:8px 20px; background:#FE2C55; color:#fff; border-radius:6px; font-weight:bold; display:flex; align-items:center;">Mesajlar</a>`;
+        } else {
+            actionButtonsHTML = `
+            <a href="/follow/${targetUser._id}" style="padding:8px 25px; background:#FE2C55; color:#fff; border-radius:6px; font-weight:bold; display:flex; align-items:center;">Takip Et</a>`;
+        }
+    }
+
     res.send(`
     <!DOCTYPE html>
     <html lang="tr">
@@ -655,8 +674,7 @@ app.get('/profile/:username', async (req, res) => {
             </div>
             <p style="color:#ccc; font-size:13px; margin-bottom:15px;">${targetUser.bio}</p>
             <div style="display:flex; gap:10px; justify-content:center;">
-                ${isMe ? `<button onclick="document.getElementById('editModal').style.display='flex'" style="padding:8px 25px; background:#2f2f2f; color:#fff; border:none; border-radius:6px; font-weight:bold; cursor:pointer;">Profili Düzenle</button>` : `<a href="/follow/${targetUser._id}" style="padding:8px 25px; background:${isFollowing ? '#333' : '#FE2C55'}; color:#fff; border-radius:6px; font-weight:bold; display:flex; align-items:center;">${isFollowing ? 'Takiptesin' : 'Takip Et'}</a>`}
-                ${isMe ? `<a href="/logout" style="padding:8px 15px; background:#333; color:#ff4d4d; border-radius:6px; font-weight:bold; display:flex; align-items:center; font-size:13px;">Çıkış Yap</a>` : ''}
+                ${actionButtonsHTML}
             </div>
         </div>
 
@@ -829,9 +847,21 @@ app.get('/search', async (req, res) => {
 
 app.get('/inbox', async (req, res) => {
     if (!req.session.user || !isConnected) return res.redirect('/login');
-    const users = await usersCol.find({ _id: { $ne: new ObjectId(req.session.user._id) } }).toArray();
-    const stories = await storiesCol.find({}).sort({ _id: -1 }).toArray();
     const myUsername = req.session.user.username;
+    const myUserId = new ObjectId(req.session.user._id);
+
+    const stories = await storiesCol.find({}).sort({ _id: -1 }).toArray();
+
+    // Sadece kullanıcıyla mesajlaşması bulunan kişileri veya grupları gelen kutusunda göster
+    const messagesList = await messagesCol.find({ $or: [{ sender: myUsername }, { receiver: myUsername }] }).toArray();
+    let chattedUsernames = new Set();
+    messagesList.forEach(m => {
+        if (m.sender !== myUsername) chattedUsernames.add(m.sender);
+        if (m.receiver !== myUsername) chattedUsernames.add(m.receiver);
+    });
+
+    const chattedUsers = await usersCol.find({ username: { $in: Array.from(chattedUsernames) } }).toArray();
+    const myGroups = await groupsCol.find({ members: myUsername }).toArray();
 
     let storiesHTML = `<div class="story-circle-item" onclick="window.location='/upload-story-page'"><div class="story-circle-ring plus-ring">+</div><span>Hikayen</span></div>`;
     stories.forEach(s => {
@@ -840,9 +870,30 @@ app.get('/inbox', async (req, res) => {
         storiesHTML += `<div class="story-circle-item" onclick="viewStory('${s.mediaUrl}', '${s.mediaType}', '${s.username}', '${s._id}', ${isMyStory})"><div class="story-circle-ring">${mediaTag}</div><span>@${s.username}</span></div>`;
     });
 
-    let userListHTML = '';
-    users.forEach(u => {
-        userListHTML += `<a href="/chat/${u.username}" style="display:flex; align-items:center; justify-content:space-between; padding:12px 15px; border-bottom:1px solid #1a1a1a;"><div><b>${u.nickname}</b><div style="color:#888; font-size:12px;">@${u.username} ile sohbet et</div></div><span style="background:#FE2C55; color:#fff; font-size:10px; padding:2px 6px; border-radius:10px;">Yeni 1</span></a>`;
+    let inboxListHTML = '';
+    
+    // Grupları listeye ekle
+    myGroups.forEach(g => {
+        inboxListHTML += `
+        <a href="/group-chat/${g._id}" style="display:flex; align-items:center; justify-content:space-between; padding:12px 15px; border-bottom:1px solid #1a1a1a;">
+            <div style="display:flex; align-items:center; gap:12px;">
+                <div style="width:40px; height:40px; background:#25F4EE; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:bold; color:#000;">👥</div>
+                <div><b>${g.groupName}</b><div style="color:#888; font-size:12px;">Grup Sohbeti (${g.members.length} üye)</div></div>
+            </div>
+            <span style="background:#25F4EE; color:#000; font-size:10px; padding:2px 6px; border-radius:10px; font-weight:bold;">Grup</span>
+        </a>`;
+    });
+
+    // Mesajlaşılan kişileri listeye ekle
+    chattedUsers.forEach(u => {
+        inboxListHTML += `
+        <a href="/chat/${u.username}" style="display:flex; align-items:center; justify-content:space-between; padding:12px 15px; border-bottom:1px solid #1a1a1a;">
+            <div style="display:flex; align-items:center; gap:12px;">
+                <div style="width:40px; height:40px; background:#FE2C55; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:bold; color:#fff; overflow:hidden;">${u.avatar ? `<img src="${u.avatar}" style="width:100%;height:100%;object-fit:cover;">` : u.nickname.charAt(0)}</div>
+                <div><b>${u.nickname}</b><div style="color:#888; font-size:12px;">@${u.username} ile sohbet</div></div>
+            </div>
+            <span style="background:#FE2C55; color:#fff; font-size:10px; padding:2px 6px; border-radius:10px;">Aktif</span>
+        </a>`;
     });
 
     res.send(`
@@ -928,13 +979,54 @@ app.get('/inbox', async (req, res) => {
         </div>
 
         <div class="story-inbox-bar">${storiesHTML}</div>
-        <h3 style="padding:15px; margin:0;">Bildirimler & Mesajlar</h3>
-        ${userListHTML}
+        
+        <div style="padding:15px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #222;">
+            <h3 style="margin:0;">Mesajlar ve Sohbetler</h3>
+            <button onclick="document.getElementById('groupModal').style.display='flex'" style="background:#25F4EE; color:#000; border:none; padding:8px 14px; border-radius:6px; font-weight:bold; cursor:pointer; font-size:13px;">➕ Grup Kur</button>
+        </div>
+
+        ${inboxListHTML || '<p style="text-align:center; color:#888; padding:40px;">Henüz aktif bir mesajlaşmanız veya grubunuz yok. Profillerden "Mesajlar" butonuna basarak sohbet başlatabilirsiniz.</p>'}
+        
+        <!-- GRUP KURMA MODALI -->
+        <div id="groupModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); z-index:200000; justify-content:center; align-items:center;">
+            <div style="background:#1f1f1f; padding:25px; border-radius:12px; width:340px; text-align:center; color:#fff;">
+                <h3>Sohbet Grubu Kur</h3>
+                <form action="/create-group" method="POST" style="display:flex; flex-direction:column; gap:12px; margin-top:15px;">
+                    <input type="text" name="groupName" placeholder="Grup Adı" required style="padding:10px; background:#2f2f2f; border:none; color:#fff; border-radius:6px; outline:none;">
+                    <input type="text" name="members" placeholder="Üyelerin kullanıcı adları (virgülle ayırın, örn: ahmet,mehmet)" required style="padding:10px; background:#2f2f2f; border:none; color:#fff; border-radius:6px; outline:none;">
+                    <button type="submit" style="background:#25F4EE; color:#000; padding:10px; border:none; border-radius:6px; font-weight:bold; cursor:pointer; margin-top:5px;">Grubu Oluştur</button>
+                    <button type="button" onclick="document.getElementById('groupModal').style.display='none'" style="background:#333; color:#fff; padding:8px; border:none; border-radius:6px; cursor:pointer;">İptal</button>
+                </form>
+            </div>
+        </div>
+
         ${getNavbar('inbox', req.session.user.username, false)}
     </body>
     </html>`);
 });
 
+// GRUP OLUŞTURMA ROUTE
+app.post('/create-group', async (req, res) => {
+    if (!req.session.user || !isConnected) return res.redirect('/login');
+    const { groupName, members } = req.body;
+    if (!groupName || !members) return res.redirect('/inbox');
+
+    let memberList = members.split(',').map(m => m.trim().toLowerCase());
+    memberList.push(req.session.user.username.toLowerCase()); // Grubu kuranı ekle
+    // Benzersiz yap
+    memberList = Array.from(new Set(memberList));
+
+    await groupsCol.insertOne({
+        groupName: groupName.trim(),
+        members: memberList,
+        createdBy: req.session.user.username,
+        createdAt: new Date()
+    });
+
+    res.redirect('/inbox');
+});
+
+// BİREBİR SOHBET ROUTE
 app.get('/chat/:targetUser', async (req, res) => {
     if (!req.session.user || !isConnected) return res.redirect('/login');
     const target = await usersCol.findOne({ username: req.params.targetUser.toLowerCase() });
@@ -948,7 +1040,7 @@ app.get('/chat/:targetUser', async (req, res) => {
         const isMe = m.sender === myUser;
         chatHTML += `
         <div style="display:flex; justify-content:${isMe ? 'flex-end' : 'flex-start'}; margin-bottom:12px;">
-            <div style="max-width:75%; background:${isMe ? '#33ccff' : '#f1f1f2'}; color:${isMe ? '#000' : '#000'}; padding:10px 16px; border-radius:18px; font-size:14px; line-height:1.4;">
+            <div style="max-width:75%; background:${isMe ? '#FE2C55' : '#f1f1f2'}; color:${isMe ? '#fff' : '#000'}; padding:10px 16px; border-radius:18px; font-size:14px; line-height:1.4;">
                 ${m.text}
             </div>
         </div>`;
@@ -964,15 +1056,15 @@ app.get('/chat/:targetUser', async (req, res) => {
         <title>Sohbet - @${target.username}</title>
         <style>
             ${globalStyles}
-            body { background: #fff; color: #000; }
-            .chat-header { position: fixed; top: 0; left: 0; width: 100%; height: 60px; background: #fff; display: flex; align-items: center; justify-content: space-between; padding: 0 15px; border-bottom: 1px solid #eee; z-index: 100; }
+            body { background: #000; color: #fff; }
+            .chat-header { position: fixed; top: 0; left: 0; width: 100%; height: 60px; background: #121212; display: flex; align-items: center; justify-content: space-between; padding: 0 15px; border-bottom: 1px solid #222; z-index: 100; }
             .chat-header-left { display: flex; align-items: center; gap: 12px; }
-            .chat-header-right { display: flex; align-items: center; gap: 20px; font-size: 20px; color: #000; }
+            .chat-header-right { display: flex; align-items: center; gap: 20px; font-size: 20px; color: #fff; }
             .chat-avatar { width: 36px; height: 36px; background: #FE2C55; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; color: #fff; font-size: 15px; overflow: hidden; }
             .chat-body { padding: 75px 15px 90px 15px; min-height: 100vh; box-sizing: border-box; display: flex; flex-direction: column; justify-content: flex-end; }
-            .chat-footer { position: fixed; bottom: 0; left: 0; width: 100%; background: #fff; padding: 10px 15px; border-top: 1px solid #eee; display: flex; align-items: center; gap: 12px; z-index: 100; }
-            .chat-input-box { flex-grow: 1; background: #f1f1f2; border-radius: 24px; padding: 10px 16px; display: flex; align-items: center; }
-            .chat-input-box input { width: 100%; background: transparent; border: none; outline: none; font-size: 14px; color: #000; }
+            .chat-footer { position: fixed; bottom: 0; left: 0; width: 100%; background: #121212; padding: 10px 15px; border-top: 1px solid #222; display: flex; align-items: center; gap: 12px; z-index: 100; }
+            .chat-input-box { flex-grow: 1; background: #222; border-radius: 24px; padding: 10px 16px; display: flex; align-items: center; }
+            .chat-input-box input { width: 100%; background: transparent; border: none; outline: none; font-size: 14px; color: #fff; }
             .chat-footer-icons { display: flex; align-items: center; gap: 12px; font-size: 20px; cursor: pointer; }
         </style>
         <script>
@@ -981,18 +1073,15 @@ app.get('/chat/:targetUser', async (req, res) => {
                 input.value += emoji;
                 input.focus();
             }
-            function triggerAction(actionName) {
-                alert(actionName + ' özelliği seçildi!');
-            }
         </script>
     </head>
     <body>
         <div class="chat-header">
             <div class="chat-header-left">
-                <a href="/inbox" style="font-size:24px; font-weight:bold;">‹</a>
+                <a href="/inbox" style="font-size:24px; font-weight:bold; color:#fff;">‹</a>
                 <div class="chat-avatar">${target.avatar ? `<img src="${target.avatar}" style="width:100%; height:100%; object-fit:cover;">` : target.nickname.charAt(0).toUpperCase()}</div>
                 <div>
-                    <div style="font-weight:bold; font-size:15px; color:#000;">${target.nickname} ${targetVerified}</div>
+                    <div style="font-weight:bold; font-size:15px; color:#fff;">${target.nickname} ${targetVerified}</div>
                     <div style="font-size:11px; color:#888;">@${target.username}</div>
                 </div>
             </div>
@@ -1007,15 +1096,13 @@ app.get('/chat/:targetUser', async (req, res) => {
         </div>
 
         <form action="/send-msg/${target.username}" method="POST" class="chat-footer" autocomplete="off">
-            <span class="chat-footer-icons" onclick="triggerAction('Kamera')">📷</span>
             <div class="chat-input-box">
-                <input type="text" id="chatInput" name="text" placeholder="Mesaj ve GIF gönder..." required>
+                <input type="text" id="chatInput" name="text" placeholder="Mesaj gönder..." required>
             </div>
             <div class="chat-footer-icons">
-                <span onclick="triggerAction('Galeri / Resim')">🖼️</span>
                 <span onclick="appendEmoji('🔥')">🔥</span>
                 <span onclick="appendEmoji('❤️')">❤️</span>
-                <span onclick="triggerAction('Ses Kaydı')">🎙️</span>
+                <button type="submit" style="background:#FE2C55; color:#fff; border:none; padding:8px 14px; border-radius:18px; font-weight:bold; cursor:pointer; font-size:13px;">Gönder</button>
             </div>
         </form>
         <script>window.scrollTo(0, document.body.scrollHeight);</script>
@@ -1026,6 +1113,85 @@ app.get('/chat/:targetUser', async (req, res) => {
 app.post('/send-msg/:targetUser', async (req, res) => {
     if (!req.session.user || !isConnected) return res.redirect('/login');
     await messagesCol.insertOne({ sender: req.session.user.username, receiver: req.params.targetUser, text: req.body.text, createdAt: new Date() });
+    res.redirect('back');
+});
+
+// GRUP SOHBET ROUTE
+app.get('/group-chat/:groupId', async (req, res) => {
+    if (!req.session.user || !isConnected) return res.redirect('/login');
+    try {
+        const group = await groupsCol.findOne({ _id: new ObjectId(req.params.groupId) });
+        if (!group || !group.members.includes(req.session.user.username.toLowerCase())) {
+            return res.send("Gruba erişim yetkiniz yok.");
+        }
+
+        const messages = await messagesCol.find({ receiverGroup: group._id.toString() }).sort({ _id: 1 }).toArray();
+
+        let chatHTML = '';
+        messages.forEach(m => {
+            const isMe = m.sender === req.session.user.username;
+            chatHTML += `
+            <div style="display:flex; flex-direction:column; align-items:${isMe ? 'flex-end' : 'flex-start'}; margin-bottom:12px;">
+                <div style="font-size:11px; color:#888; margin-bottom:2px;">@${m.sender}</div>
+                <div style="max-width:75%; background:${isMe ? '#FE2C55' : '#222'}; color:#fff; padding:10px 16px; border-radius:18px; font-size:14px; line-height:1.4;">
+                    ${m.text}
+                </div>
+            </div>`;
+        });
+
+        res.send(`
+        <!DOCTYPE html>
+        <html lang="tr">
+        <head>
+            <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Grup: ${group.groupName}</title>
+            <style>
+                ${globalStyles}
+                body { background: #000; color: #fff; }
+                .chat-header { position: fixed; top: 0; left: 0; width: 100%; height: 60px; background: #121212; display: flex; align-items: center; justify-content: space-between; padding: 0 15px; border-bottom: 1px solid #222; z-index: 100; }
+                .chat-body { padding: 75px 15px 90px 15px; min-height: 100vh; box-sizing: border-box; display: flex; flex-direction: column; justify-content: flex-end; }
+                .chat-footer { position: fixed; bottom: 0; left: 0; width: 100%; background: #121212; padding: 10px 15px; border-top: 1px solid #222; display: flex; align-items: center; gap: 12px; z-index: 100; }
+                .chat-input-box { flex-grow: 1; background: #222; border-radius: 24px; padding: 10px 16px; display: flex; align-items: center; }
+                .chat-input-box input { width: 100%; background: transparent; border: none; outline: none; font-size: 14px; color: #fff; }
+            </style>
+        </head>
+        <body>
+            <div class="chat-header">
+                <div style="display:flex; align-items:center; gap:12px;">
+                    <a href="/inbox" style="font-size:24px; font-weight:bold; color:#fff;">‹</a>
+                    <div>
+                        <div style="font-weight:bold; font-size:15px; color:#fff;">👥 ${group.groupName}</div>
+                        <div style="font-size:11px; color:#888;">${group.members.length} Üye</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="chat-body">
+                ${chatHTML || '<p style="text-align:center; color:#888;">Grubun ilk mesajını sen yaz!</p>'}
+            </div>
+
+            <form action="/send-group-msg/${group._id}" method="POST" class="chat-footer" autocomplete="off">
+                <div class="chat-input-box">
+                    <input type="text" name="text" placeholder="Gruba mesaj gönder..." required>
+                </div>
+                <button type="submit" style="background:#FE2C55; color:#fff; border:none; padding:10px 18px; border-radius:18px; font-weight:bold; cursor:pointer; font-size:13px;">Gönder</button>
+            </form>
+            <script>window.scrollTo(0, document.body.scrollHeight);</script>
+        </body>
+        </html>`);
+    } catch (err) {
+        res.send("Hata oluştu.");
+    }
+});
+
+app.post('/send-group-msg/:groupId', async (req, res) => {
+    if (!req.session.user || !isConnected) return res.redirect('/login');
+    await messagesCol.insertOne({
+        sender: req.session.user.username,
+        receiverGroup: req.params.groupId,
+        text: req.body.text,
+        createdAt: new Date()
+    });
     res.redirect('back');
 });
 
@@ -1219,7 +1385,7 @@ app.get('/', async (req, res) => {
         <div class="top-tabs">
             <a href="/?feed=community" class="${feedType === 'community' ? 'active' : ''}">Topluluk</a>
             <a href="/?feed=following" class="${feedType === 'following' ? 'active' : ''}">Takipte</a>
-            <a href="/?feed=foryou" class="${feedType === 'foryou' ? 'active' : ''}">Sizin İçin</a>
+            <a href="/?feed=foryou" class="${feedType === 'fory0u' ? 'active' : ''}">Sizin İçin</a>
         </div>
 
         <a href="/search" class="top-search-btn">🔍</a>
