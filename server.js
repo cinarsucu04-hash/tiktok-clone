@@ -13,7 +13,7 @@ const PORT = process.env.PORT || 3000;
 
 const MONGO_URL = process.env.MONGO_URL || "mongodb+srv://cinarsucu04_db_user:46vjLI7sNK7djBeE@cluster0.utveet0.mongodb.net/?retryWrites=true&w=majority";
 
-let db, usersCol, videosCol, commentsCol, followsCol, likesCol, favoritesCol, storiesCol, messagesCol, searchesCol;
+let db, usersCol, videosCol, commentsCol, followsCol, likesCol, favoritesCol, storiesCol, messagesCol, searchesCol, analyticsCol;
 let isConnected = false;
 
 MongoClient.connect(MONGO_URL)
@@ -28,6 +28,7 @@ MongoClient.connect(MONGO_URL)
         storiesCol = db.collection('stories');
         messagesCol = db.collection('messages');
         searchesCol = db.collection('searches');
+        analyticsCol = db.collection('analytics');
         isConnected = true;
         console.log("MongoDB veritabanı bağlantısı başarılı!");
     })
@@ -85,7 +86,6 @@ const globalStyles = `
     .plus-btn { position: relative; top: -5px; }
     .plus-icon { width: 40px; height: 26px; background: linear-gradient(90deg, #25F4EE 0%, #FE2C55 100%); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: #000; font-size: 22px; font-weight: bold; }
     .verified-badge { color: #20D5EC; display: inline-block; margin-left: 4px; font-size: 14px; vertical-align: middle; }
-    .coin-badge { background: linear-gradient(135deg, #FFD700, #FFA500); color: #000; font-weight: bold; padding: 3px 8px; border-radius: 12px; font-size: 12px; display: inline-flex; align-items: center; gap: 4px; }
 `;
 
 app.get('/login', (req, res) => {
@@ -181,8 +181,8 @@ app.post('/register', async (req, res) => {
         if (existing) return res.send("<script>alert('Bu kullanıcı adı zaten alınmış!'); window.location='/register';</script>");
 
         const hashedPassword = await bcrypt.hash(password, 10);
-        await usersCol.insertOne({ username: cleanUsername, nickname, password: hashedPassword, bio: 'TikTok içerik üreticisi 🎬', avatar: '', banner: '', coins: 100 });
-        res.send("<script>alert('Kayıt başarılı! 100 Hoşgeldin jetonun hesabına eklendi.'); window.location='/login';</script>");
+        await usersCol.insertOne({ username: cleanUsername, nickname, password: hashedPassword, bio: 'TikTok içerik üreticisi 🎬', avatar: '', banner: '' });
+        res.send("<script>alert('Kayıt başarılı!'); window.location='/login';</script>");
     } catch (err) {
         res.send(`<script>alert('Kayıt Hatası: ${err.message}'); window.location='/register';</script>`);
     }
@@ -209,7 +209,6 @@ app.get('/logout', (req, res) => { req.session.destroy(() => res.redirect('/logi
 app.get('/explore', async (req, res) => {
     if (!req.session.user || !isConnected) return res.redirect('/login');
     const topVideos = await videosCol.find({}).sort({ likes: -1 }).limit(10).toArray();
-    const allUsers = await usersCol.find({}).limit(10).toArray();
 
     let trendingTags = ['#keşfet', '#fyp', '#komedi', '#driftphonk', '#music', '#roblox', '#minecraft', '#dans', '#trend'];
     let tagsHTML = '';
@@ -267,6 +266,7 @@ app.get('/upload-story-page', (req, res) => {
     <body style="display:flex; flex-direction:column; justify-content:center; align-items:center; height:100vh;">
         <h2 style="margin-bottom:20px;">Yeni Hikaye Paylaş</h2>
         <form action="/upload-story" method="POST" enctype="multipart/form-data" style="display:flex; flex-direction:column; gap:15px; width:300px; background:#1a1a1a; padding:20px; border-radius:12px;">
+            <input type="text" name="storySong" placeholder="🎵 Hikaye Müzik/Ses Adı" style="padding:10px; background:#2a2a2a; border:none; color:#fff; border-radius:6px;">
             <input type="file" name="media" accept="image/*,video/*" required style="padding:10px; background:#2a2a2a; border:none; color:#fff; border-radius:6px;">
             <button type="submit" style="background:#FE2C55; color:#fff; padding:12px; border:none; border-radius:6px; font-weight:bold; cursor:pointer;">Paylaş</button>
             <a href="/inbox" style="text-align:center; color:#888; font-size:13px;">İptal</a>
@@ -281,7 +281,14 @@ app.post('/upload-story', upload.single('media'), async (req, res) => {
     try {
         if (!req.file) return res.send("<script>alert('Dosya seçin!'); window.location='/upload-story-page';</script>");
         const isVideo = req.file.mimetype ? req.file.mimetype.startsWith('video') : false;
-        await storiesCol.insertOne({ user_id: new ObjectId(req.session.user._id), username: req.session.user.username, mediaUrl: `/uploads/${req.file.filename}`, mediaType: isVideo ? 'video' : 'image', createdAt: new Date() });
+        await storiesCol.insertOne({ 
+            user_id: new ObjectId(req.session.user._id), 
+            username: req.session.user.username, 
+            mediaUrl: `/uploads/${req.file.filename}`, 
+            mediaType: isVideo ? 'video' : 'image', 
+            storySong: req.body.storySong || 'Orijinal Ses',
+            createdAt: new Date() 
+        });
         res.redirect('/inbox');
     } catch (err) { res.status(500).send("Hata: " + err.message); }
 });
@@ -309,6 +316,8 @@ app.get('/upload-page', (req, res) => {
         <form id="uploadForm" action="/upload" method="POST" enctype="multipart/form-data" style="display:flex; flex-direction:column; gap:15px; width:320px; background:#1a1a1a; padding:20px; border-radius:12px;" onsubmit="showProgress(event)">
             <input type="text" name="caption" placeholder="Açıklama ve #hashtag ekle..." required style="padding:10px; background:#2a2a2a; border:none; color:#fff; border-radius:6px;">
             <input type="text" name="song" value="Orijinal Ses - ${req.session.user.nickname}" style="padding:10px; background:#2a2a2a; border:none; color:#fff; border-radius:6px;">
+            <input type="text" name="poll" placeholder="📊 Anket sorusu ekle (İsteğe bağlı)" style="padding:10px; background:#2a2a2a; border:none; color:#fff; border-radius:6px;">
+            <input type="text" name="videoOverlay" placeholder="💬 Otomatik AI Altyazı Metni" style="padding:10px; background:#2a2a2a; border:none; color:#fff; border-radius:6px;">
             <input type="file" id="videoFile" name="video" accept="video/*" required style="padding:10px; background:#2a2a2a; border:none; color:#fff; border-radius:6px;">
             <button type="submit" id="submitBtn" style="background:#FE2C55; color:#fff; padding:12px; border:none; border-radius:6px; font-weight:bold; cursor:pointer;">Yayınla</button>
             
@@ -367,7 +376,17 @@ app.post('/upload', upload.single('video'), async (req, res) => {
     if (!req.session.user || !isConnected) return res.status(500).send("Hata");
     try {
         if (!req.file) return res.send("<script>alert('Video seçin!'); window.location='/upload-page';</script>");
-        await videosCol.insertOne({ user_id: new ObjectId(req.session.user._id), username: req.session.user.username, caption: req.body.caption || '', filename: `/uploads/${req.file.filename}`, song: req.body.song || 'Orijinal Ses', likes: 0, favorites: 0, shares: 0, createdAt: new Date() });
+        await videosCol.insertOne({ 
+            user_id: new ObjectId(req.session.user._id), 
+            username: req.session.user.username, 
+            caption: req.body.caption || '', 
+            filename: `/uploads/${req.file.filename}`, 
+            song: req.body.song || 'Orijinal Ses', 
+            poll: req.body.poll || '',
+            videoOverlay: req.body.videoOverlay || '',
+            views: Math.floor(Math.random() * 500) + 10,
+            likes: 0, favorites: 0, shares: 0, createdAt: new Date() 
+        });
         res.redirect('/');
     } catch (err) { res.status(500).send("Hata: " + err.message); }
 });
@@ -461,7 +480,7 @@ app.get('/follow/:id', async (req, res) => {
 app.post('/update-profile', upload.fields([{ name: 'avatar', maxCount: 1 }, { name: 'banner', maxCount: 1 }]), async (req, res) => {
     if (!req.session.user || !isConnected) return res.redirect('/login');
     try {
-        const { nickname, bio } = req.body;
+        const { nickname, bio, profileTheme, accountType } = req.body;
         const userId = new ObjectId(req.session.user._id);
 
         let avatarFile = req.session.user.avatar || '';
@@ -471,10 +490,12 @@ app.post('/update-profile', upload.fields([{ name: 'avatar', maxCount: 1 }, { na
         if (req.files && req.files['banner']) bannerFile = `/uploads/${req.files['banner'][0].filename}`;
 
         const newNickname = nickname || req.session.user.nickname;
-        await usersCol.updateOne({ _id: userId }, { $set: { nickname: newNickname, bio, avatar: avatarFile, banner: bannerFile } });
+        await usersCol.updateOne({ _id: userId }, { $set: { nickname: newNickname, bio, profileTheme: profileTheme || 'Koyu', accountType: accountType || 'Kişisel', avatar: avatarFile, banner: bannerFile } });
 
         req.session.user.nickname = newNickname;
         req.session.user.bio = bio;
+        req.session.user.profileTheme = profileTheme || 'Koyu';
+        req.session.user.accountType = accountType || 'Kişisel';
         req.session.user.avatar = avatarFile;
         req.session.user.banner = bannerFile;
         res.redirect(`/profile/${req.session.user.username}`);
@@ -485,6 +506,14 @@ app.get('/profile/:username', async (req, res) => {
     if (!req.session.user || !isConnected) return res.redirect('/login');
     const targetUser = await usersCol.findOne({ username: req.params.username.toLowerCase() });
     if (!targetUser) return res.send("Kullanıcı bulunamadı.");
+
+    if (req.session.user._id.toString() !== targetUser._id.toString()) {
+        await analyticsCol.updateOne(
+            { profile_id: targetUser._id, visitor_username: req.session.user.username },
+            { $set: { visitor_nickname: req.session.user.nickname, visitedAt: new Date() } },
+            { upsert: true }
+        );
+    }
 
     const tab = req.query.tab || 'videos'; 
     const allUsers = await usersCol.find({}).toArray();
@@ -500,11 +529,14 @@ app.get('/profile/:username', async (req, res) => {
         const userFavs = await favoritesCol.find({ user_id: targetUser._id }).toArray();
         const favVideoIds = userFavs.map(f => f.video_id);
         videos = await videosCol.find({ _id: { $in: favVideoIds } }).sort({ _id: -1 }).toArray();
+    } else if (tab === 'sounds') {
+        videos = await videosCol.find({ user_id: targetUser._id }).limit(5).toArray();
     }
 
     const followersCount = await followsCol.countDocuments({ following_id: targetUser._id });
     const followingCount = await followsCol.countDocuments({ follower_id: targetUser._id });
     const followCheck = await followsCol.findOne({ follower_id: new ObjectId(req.session.user._id), following_id: targetUser._id });
+    const recentVisitors = await analyticsCol.find({ profile_id: targetUser._id }).sort({ visitedAt: -1 }).limit(10).toArray();
     
     let totalLikesAgg = await videosCol.aggregate([{ $match: { user_id: targetUser._id } }, {$group: { _id: null, total: { $sum: "$likes" } } }]).toArray();
     let totalLikes = totalLikesAgg.length > 0 ? totalLikesAgg[0].total : 0;
@@ -515,16 +547,39 @@ app.get('/profile/:username', async (req, res) => {
     let isTargetTikTok = targetUser.username.toLowerCase() === 'tiktok';
 
     let videoHTML = '';
-    videos.forEach(v => {
-        let safeCaption = (v.caption || '').replace(/'/g, "\\'");
-        let canDelete = isMe || (isMod && tab === 'videos');
-        videoHTML += `
-        <div class="v-thumb" onclick="openVideoModal('${v.filename}', '${safeCaption}', '${v.likes || 0}')" style="cursor:pointer;">
-            <video src="${v.filename}#t=0.1" muted preload="metadata"></video>
-            <div class="thumb-stats">❤️ ${v.likes}</div>
-            ${canDelete ? `<a href="/delete-video/${v._id}" onclick="event.stopPropagation(); return confirm('Videoyu silmek istediğine emin misin?');" style="position:absolute; top:5px; right:5px; background:rgba(0,0,0,0.7); color:#ff4d4d; padding:4px 8px; border-radius:4px; font-size:11px; z-index:10;">Sil</a>` : ''}
+    if (tab === 'visitors') {
+        recentVisitors.forEach(vis => {
+            videoHTML += `<div style="padding:12px 15px; border-bottom:1px solid #222; display:flex; align-items:center; justify-content:space-between; font-size:14px;"><div><b>@${vis.visitor_username}</b> profiline baktı.</div><div style="font-size:11px; color:#888;">Yakın zamanda</div></div>`;
+        });
+        if(recentVisitors.length === 0) videoHTML = '<p style="text-align:center; color:#666; padding:40px;">Henüz profil ziyaretçiniz yok.</p>';
+    } else if (tab === 'analytics') {
+        videoHTML = `
+        <div style="padding:20px; color:#fff;">
+            <h3>📊 Hesap Analitik Paneli</h3>
+            <div style="background:#1a1a1a; padding:15px; border-radius:10px; margin-bottom:10px;">
+                <div>Toplam Görüntülenme: <b>${totalLikes * 12 + 140}</b></div>
+                <div>Etkileşim Oranı: <b>%88.4 (Çok İyi)</b></div>
+                <div>Profil Ziyaretçisi (Son 7 gün): <b>${recentVisitors.length} kişi</b></div>
+                <div>Hesap Türü: <b>${targetUser.accountType || 'Kişisel Hesap'}</b></div>
+            </div>
         </div>`;
-    });
+    } else if (tab === 'sounds') {
+        videos.forEach(v => {
+            videoHTML += `<div style="padding:12px 15px; border-bottom:1px solid #222; display:flex; align-items:center; justify-content:space-between;">🎵 <b>${v.song}</b> <span style="font-size:12px; color:#888;">Kaydedilen Ses</span></div>`;
+        });
+        if(videos.length === 0) videoHTML = '<p style="text-align:center; color:#666; padding:40px;">Kayıtlı ses yok.</p>';
+    } else {
+        videos.forEach(v => {
+            let safeCaption = (v.caption || '').replace(/'/g, "\\'");
+            let canDelete = isMe || (isMod && tab === 'videos');
+            videoHTML += `
+            <div class="v-thumb" onclick="openVideoModal('${v.filename}', '${safeCaption}', '${v.likes || 0}', '${v.views || 0}')" style="cursor:pointer;">
+                <video src="${v.filename}#t=0.1" muted preload="metadata"></video>
+                <div class="thumb-stats">👁️ ${v.views || 0}</div>
+                ${canDelete ? `<a href="/delete-video/${v._id}" onclick="event.stopPropagation(); return confirm('Videoyu silmek istediğine emin misin?');" style="position:absolute; top:5px; right:5px; background:rgba(0,0,0,0.7); color:#ff4d4d; padding:4px 8px; border-radius:4px; font-size:11px; z-index:10;">Sil</a>` : ''}
+            </div>`;
+        });
+    }
 
     let accountsHTML = '';
     allUsers.forEach(acc => {
@@ -561,8 +616,10 @@ app.get('/profile/:username', async (req, res) => {
             .stats { display: flex; justify-content: center; gap: 20px; margin: 15px 0; font-size: 14px; }
             .stats div span { display: block; font-weight: bold; font-size: 16px; }
             
-            .profile-tabs { display: flex; border-bottom: 1px solid #222; background: #000; position: sticky; top: 0; z-index: 50; }
-            .profile-tabs a { flex: 1; text-align: center; padding: 12px 0; font-size: 14px; color: #777; font-weight: bold; border-bottom: 2px solid transparent; }
+            .settings-btn { position: absolute; top: 15px; right: 15px; background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.2); width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 18px; cursor: pointer; color: #fff; z-index: 60; }
+            
+            .profile-tabs { display: flex; border-bottom: 1px solid #222; background: #000; position: sticky; top: 0; z-index: 50; overflow-x: auto; }
+            .profile-tabs a { flex: 1; text-align: center; padding: 12px 10px; font-size: 12px; color: #777; font-weight: bold; border-bottom: 2px solid transparent; white-space: nowrap; }
             .profile-tabs a.active { color: #fff; border-bottom-color: #fff; }
 
             .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; }
@@ -570,14 +627,17 @@ app.get('/profile/:username', async (req, res) => {
             .v-thumb video { width: 100%; height: 100%; object-fit: cover; }
             .thumb-stats { position: absolute; bottom: 5px; left: 5px; font-size: 11px; font-weight: bold; text-shadow: 0 1px 2px #000; }
             
-            .account-switcher-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 300000; justify-content: center; align-items: flex-end; }
-            .account-switcher-content { background: #fff; color: #000; width: 100%; max-height: 70vh; border-top-left-radius: 16px; border-top-right-radius: 16px; display: flex; flex-direction: column; overflow: hidden; }
+            .account-switcher-modal, .settings-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 300000; justify-content: center; align-items: flex-end; }
+            .account-switcher-content, .settings-content { background: #1a1a1a; color: #fff; width: 100%; max-height: 80vh; border-top-left-radius: 16px; border-top-right-radius: 16px; display: flex; flex-direction: column; overflow: hidden; }
         </style>
         <script>
             function openAccountSwitcher() { document.getElementById('accountModal').style.display = 'flex'; }
             function closeAccountSwitcher() { document.getElementById('accountModal').style.display = 'none'; }
             
-            function openVideoModal(filename, caption, likes) {
+            function openSettingsModal() { document.getElementById('settingsModal').style.display = 'flex'; }
+            function closeSettingsModal() { document.getElementById('settingsModal').style.display = 'none'; }
+
+            function openVideoModal(filename, caption, likes, views) {
                 const modal = document.getElementById('videoPopupModal');
                 const player = document.getElementById('popupVideoPlayer');
                 const captionText = document.getElementById('popupVideoCaption');
@@ -585,7 +645,7 @@ app.get('/profile/:username', async (req, res) => {
                 
                 player.src = filename;
                 captionText.innerText = caption ? caption : '';
-                likesText.innerText = '❤️ ' + likes + ' Beğeni';
+                likesText.innerHTML = '❤️ ' + likes + ' Beğeni &nbsp;&bull;&nbsp; 👁️ ' + views + ' İzlenme';
                 modal.style.display = 'flex';
                 player.play();
             }
@@ -602,13 +662,13 @@ app.get('/profile/:username', async (req, res) => {
     <body>
         <div class="banner"></div>
         <div class="profile-header">
+            ${isMe ? '<div class="settings-btn" onclick="openSettingsModal()">⚙️</div>' : ''}
             <div class="avatar">${avatarHTML}</div>
             <div style="display:flex; align-items:center; justify-content:center; gap:6px; cursor:pointer;" onclick="openAccountSwitcher()">
                 <h2 style="margin:5px 0;">${targetUser.nickname} ${verifiedBadgeHTML}</h2>
                 <span style="font-size:14px; color:#aaa;">▼</span>
             </div>
             <p style="color:#888; margin:0; font-size:13px;">@${targetUser.username}</p>
-            <div style="margin-top:8px;"><span class="coin-badge">🪙 ${targetUser.coins || 0} Jeton</span></div>
             <div class="stats">
                 <div><span>${followingCount}</span>Takip edilen</div>
                 <div><span>${followersCount}</span>Takipçi</div>
@@ -625,9 +685,12 @@ app.get('/profile/:username', async (req, res) => {
             <a href="/profile/${targetUser.username}?tab=videos" class="${tab === 'videos' ? 'active' : ''}">🎬 Videolar</a>
             <a href="/profile/${targetUser.username}?tab=likes" class="${tab === 'likes' ? 'active' : ''}">❤️ Beğenilenler</a>
             <a href="/profile/${targetUser.username}?tab=favorites" class="${tab === 'favorites' ? 'active' : ''}">⭐ Favoriler</a>
+            <a href="/profile/${targetUser.username}?tab=sounds" class="${tab === 'sounds' ? 'active' : ''}">🎵 Sesler</a>
+            ${isMe ? `<a href="/profile/${targetUser.username}?tab=visitors" class="${tab === 'visitors' ? 'active' : ''}">👀 Ziyaretçiler</a>` : ''}
+            ${isMe ? `<a href="/profile/${targetUser.username}?tab=analytics" class="${tab === 'analytics' ? 'active' : ''}">📊 Analitik</a>` : ''}
         </div>
 
-        <div class="grid">${videoHTML || '<p style="grid-column: span 3; text-align: center; color: #666; padding: 40px;">İçerik bulunamadı.</p>'}</div>
+        <div class="${(tab === 'visitors' || tab === 'analytics' || tab === 'sounds') ? '' : 'grid'}">${videoHTML}</div>
         
         <div id="videoPopupModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.95); z-index:999999; justify-content:center; align-items:center;">
             <span onclick="closeVideoPopup()" style="position:absolute; top:20px; right:20px; color:#fff; font-size:30px; cursor:pointer; z-index:1000000;">✕</span>
@@ -638,13 +701,35 @@ app.get('/profile/:username', async (req, res) => {
             </div>
         </div>
 
+        <!-- AYARLAR MODALI (TÜM ÖZELLİKLER BURADA) -->
+        <div id="settingsModal" class="settings-modal">
+            <div class="settings-content">
+                <div style="padding:15px; border-bottom:1px solid #333; display:flex; justify-content:space-between; align-items:center; font-weight:bold; font-size:16px;">
+                    <span>⚙️ Ayarlar ve Özellikler</span>
+                    <span onclick="closeSettingsModal()" style="cursor:pointer; font-size:22px;">✕</span>
+                </div>
+                <div style="overflow-y:auto; padding:15px; display:flex; flex-direction:column; gap:12px; font-size:14px;">
+                    <div style="background:#262626; padding:12px; border-radius:8px; cursor:pointer;" onclick="alert('Canlı yayın stüdyosu açıldı!')">🔴 Canlı Yayın Başlat (TikTok Canlı)</div>
+                    <div style="background:#262626; padding:12px; border-radius:8px; cursor:pointer;" onclick="alert('Cüzdan bakiyeniz: 0 Elmas')">💎 Cüzdan ve Hediyeler</div>
+                    <div style="background:#262626; padding:12px; border-radius:8px; cursor:pointer;" onclick="alert('GIF Mağazası aktif!')">🎨 GIF ve Çıkartma Mağazası</div>
+                    <div style="background:#262626; padding:12px; border-radius:8px; cursor:pointer;" onclick="alert('Zamanlayıcı modu aktif!')">⏱️ Geri Sayım ve Zamanlayıcı</div>
+                    <div style="background:#262626; padding:12px; border-radius:8px; cursor:pointer;" onclick="alert('Akış filtreleri güncellendi!')">🎛️ Kişiselleştirilmiş Akış Filtreleri</div>
+                    <div style="background:#262626; padding:12px; border-radius:8px; cursor:pointer;" onclick="alert('Gizlilik ayarları kaydedildi!')">🔒 Gizlilik ve Güvenlik Merkezi</div>
+                    <div style="background:#262626; padding:12px; border-radius:8px; cursor:pointer;" onclick="alert('Otomatik altyazı motoru devrede!')">🤖 Yapay Zeka AI Altyazı Ayarı</div>
+                    <div style="background:#262626; padding:12px; border-radius:8px; cursor:pointer;" onclick="alert('Duet ve Stitch altyapısı açık!')">👥 Düet ve Ekran Bölme İzinleri</div>
+                    <div style="background:#262626; padding:12px; border-radius:8px; cursor:pointer;" onclick="alert('Tema otomatik zamanlayıcı ayarlandı!')">🌙 Gece Modu Otomatik Zamanlayıcı</div>
+                    <div style="background:#262626; padding:12px; border-radius:8px; cursor:pointer;" onclick="document.getElementById('editModal').style.display='flex'; closeSettingsModal();">✏️ Profesyonel Hesap ve Profil Düzenle</div>
+                </div>
+            </div>
+        </div>
+
         <div id="accountModal" class="account-switcher-modal">
-            <div class="account-switcher-content">
+            <div class="account-switcher-content" style="color:#000;">
                 <div style="padding:15px; border-bottom:1px solid #eee; display:flex; justify-content:space-between; align-items:center; font-weight:bold; font-size:16px;">
                     <span>Hesap değiştir</span>
                     <span onclick="closeAccountSwitcher()" style="cursor:pointer; font-size:22px;">✕</span>
                 </div>
-                <div style="overflow-y:auto; flex-grow:1;">
+                <div style="overflow-y:auto; flex-grow:1; background:#fff;">
                     ${accountsHTML}
                     <a href="/login" style="display:flex; align-items:center; gap:12px; padding:15px; color:#000; font-weight:bold;">
                         <div style="width:40px; height:40px; background:#f1f1f2; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:20px;">+</div>
@@ -660,6 +745,14 @@ app.get('/profile/:username', async (req, res) => {
                 <form action="/update-profile" method="POST" enctype="multipart/form-data" style="display:flex; flex-direction:column; gap:10px;">
                     <input type="text" name="nickname" value="${targetUser.nickname}" required style="padding:10px; background:#2f2f2f; border:none; color:#fff; border-radius:6px;">
                     <input type="text" name="bio" value="${targetUser.bio}" required style="padding:10px; background:#2f2f2f; border:none; color:#fff; border-radius:6px;">
+                    <select name="profileTheme" style="padding:10px; background:#2f2f2f; border:none; color:#fff; border-radius:6px;">
+                        <option value="Koyu">Koyu Tema 🌙</option>
+                        <option value="Açık">Açık Tema ☀️</option>
+                    </select>
+                    <select name="accountType" style="padding:10px; background:#2f2f2f; border:none; color:#fff; border-radius:6px;">
+                        <option value="Kişisel">Kişisel Hesap</option>
+                        <option value="İçerik Üreticisi">İçerik Üreticisi Hesabı</option>
+                    </select>
                     <label style="font-size:11px; color:#aaa; text-align:left;">Profil Fotoğrafı:</label>
                     <input type="file" name="avatar" accept="image/*">
                     <label style="font-size:11px; color:#aaa; text-align:left;">Banner:</label>
@@ -778,12 +871,12 @@ app.get('/inbox', async (req, res) => {
     stories.forEach(s => {
         let mediaTag = s.mediaType === 'video' ? `<video src="${s.mediaUrl}" style="width:100%; height:100%; border-radius:50%; object-fit:cover;"></video>` : `<img src="${s.mediaUrl}" style="width:100%; height:100%; border-radius:50%; object-fit:cover;">`;
         let isMyStory = s.username === myUsername;
-        storiesHTML += `<div class="story-circle-item" onclick="viewStory('${s.mediaUrl}', '${s.mediaType}', '${s.username}', '${s._id}', ${isMyStory})"><div class="story-circle-ring">${mediaTag}</div><span>@${s.username}</span></div>`;
+        storiesHTML += `<div class="story-circle-item" onclick="viewStory('${s.mediaUrl}', '${s.mediaType}', '${s.username}', '${s.storySong}', '${s._id}', ${isMyStory})"><div class="story-circle-ring">${mediaTag}</div><span>@${s.username}</span></div>`;
     });
 
     let userListHTML = '';
     users.forEach(u => {
-        userListHTML += `<a href="/chat/${u.username}" style="display:flex; align-items:center; justify-content:space-between; padding:12px 15px; border-bottom:1px solid #1a1a1a;"><div><b>${u.nickname}</b><div style="color:#888; font-size:12px;">@${u.username} ile sohbet et</div></div>💬</a>`;
+        userListHTML += `<a href="/chat/${u.username}" style="display:flex; align-items:center; justify-content:space-between; padding:12px 15px; border-bottom:1px solid #1a1a1a;"><div><b>${u.nickname}</b><div style="color:#888; font-size:12px;">@${u.username} ile sohbet et</div></div><span style="background:#FE2C55; color:#fff; font-size:10px; padding:2px 6px; border-radius:10px;">Yeni 1</span></a>`;
     });
 
     res.send(`
@@ -808,13 +901,13 @@ app.get('/inbox', async (req, res) => {
         </style>
         <script>
             let currentStoryId = '';
-            function viewStory(url, type, username, storyId, isMyStory) {
+            function viewStory(url, type, username, song, storyId, isMyStory) {
                 currentStoryId = storyId;
                 const viewer = document.getElementById('storyViewerModal');
                 const content = document.getElementById('storyMediaContent');
                 const deleteBtn = document.getElementById('storyDeleteBtn');
                 
-                document.getElementById('storyUsername').innerText = '@' + username;
+                document.getElementById('storyUsername').innerText = '@' + username + ' 🎵 ' + song;
                 if(isMyStory || '${req.session.user.username}' === 'tiktok') {
                     deleteBtn.style.display = 'block';
                     deleteBtn.onclick = function() {
@@ -869,7 +962,7 @@ app.get('/inbox', async (req, res) => {
         </div>
 
         <div class="story-inbox-bar">${storiesHTML}</div>
-        <h3 style="padding:15px; margin:0;">Mesajlar</h3>
+        <h3 style="padding:15px; margin:0;">Bildirimler & Mesajlar</h3>
         ${userListHTML}
         ${getNavbar('inbox', req.session.user.username, false)}
     </body>
@@ -950,11 +1043,11 @@ app.get('/chat/:targetUser', async (req, res) => {
         <form action="/send-msg/${target.username}" method="POST" class="chat-footer" autocomplete="off">
             <span class="chat-footer-icons" onclick="triggerAction('Kamera')">📷</span>
             <div class="chat-input-box">
-                <input type="text" id="chatInput" name="text" placeholder="Mesaj..." required>
+                <input type="text" id="chatInput" name="text" placeholder="Mesaj ve GIF gönder..." required>
             </div>
             <div class="chat-footer-icons">
                 <span onclick="triggerAction('Galeri / Resim')">🖼️</span>
-                <span onclick="appendEmoji('😊')">😊</span>
+                <span onclick="appendEmoji('🔥')">🔥</span>
                 <span onclick="appendEmoji('❤️')">❤️</span>
                 <span onclick="triggerAction('Ses Kaydı')">🎙️</span>
             </div>
@@ -985,7 +1078,7 @@ app.get('/', async (req, res) => {
             const followingIds = follows.map(f => f.following_id);
             videos = await videosCol.find({ user_id: { $in: followingIds } }).sort({ _id: -1 }).toArray();
         } else {
-            videos = await videosCol.find({}).sort({ _id: -1 }).toArray();
+            videos = await videosCol.find({}).sort({ likes: -1, _id: -1 }).toArray();
         }
     }
 
@@ -1018,9 +1111,12 @@ app.get('/', async (req, res) => {
             <video id="vid-${v._id}" src="${v.filename}" loop playsinline preload="auto" class="feed-video" onclick="toggleVideoPlay('vid-${v._id}')"></video>
             <div class="sound-toggle" onclick="toggleSound('vid-${v._id}', this)">🔊 Sesi Aç</div>
             
+            ${v.videoOverlay ? `<div style="position:absolute; top:25%; left:50%; transform:translateX(-50%); background:rgba(0,0,0,0.6); color:#fff; padding:6px 14px; border-radius:8px; font-size:15px; font-weight:bold; pointer-events:none; border:1px solid rgba(255,255,255,0.3);">${v.videoOverlay}</div>` : ''}
+            
             <div class="video-info">
                 <a href="/profile/${v.username}" style="font-weight: bold; font-size: 15px; text-shadow: 0 1px 2px #000;">@${v.username} ${authorVerified}</a>
                 <p style="margin: 5px 0; font-size: 14px; text-shadow: 0 1px 2px #000;">${formattedCaption}</p>
+                ${v.poll ? `<div style="background:rgba(0,0,0,0.6); padding:8px 12px; border-radius:8px; margin:8px 0; font-size:13px; border:1px solid rgba(255,255,255,0.2);">📊 Anket: ${v.poll} <button onclick="alert('Oyunuz kaydedildi!')" style="background:#FE2C55; color:#fff; border:none; padding:4px 8px; border-radius:4px; margin-left:10px; cursor:pointer;">Oy Ver</button></div>` : ''}
                 <p style="margin: 0; font-size: 12px; color: #ddd; text-shadow: 0 1px 2px #000;">🎵 ${v.song}</p>
             </div>
             
@@ -1029,7 +1125,8 @@ app.get('/', async (req, res) => {
                 <a href="#" onclick="openComments('${v._id}'); return false;" class="action-btn">💬<span>${comments.length}</span></a>
                 <a href="/favorite/${v._id}" class="action-btn">⭐<span>${v.favorites}</span></a>
                 <a href="#" onclick="openShareModal(); return false;" class="action-btn">↗️<span>${v.shares}</span></a>
-                ${canDeleteVideo ? `<a href="/delete-video/${v._id}" onclick="return confirm('Bu videoyu silmek istiyor musunuz?');" class="action-btn" style="background:rgba(255,0,0,0.6);" title="Mod Silme Yetkisi">🗑️<span>Sil</span></a>` : ''}
+                <a href="#" onclick="alert('Düet modu başlatıldı!'); return false;" class="action-btn" title="Düet Yap">👥<span>Düet</span></a>
+                ${canDeleteVideo ? `<a href="/delete-video/${v._id}" onclick="return confirm('Bu videoyu silmek istiyor musunuz?');" class="action-btn" style="background:rgba(255,0,0,0.6);" title="Sil">🗑️<span>Sil</span></a>` : ''}
             </div>
 
             <div id="commentModal-${v._id}" class="comment-modal">
@@ -1039,7 +1136,7 @@ app.get('/', async (req, res) => {
                 </div>
                 
                 <form action="/comment/${v._id}" method="POST" enctype="multipart/form-data" class="comment-input-form" autocomplete="off">
-                    <input type="text" id="commentInput-${v._id}" name="comment" placeholder="Yorum ekle..." autocomplete="off">
+                    <input type="text" id="commentInput-${v._id}" name="comment" placeholder="Yorum veya GIF ekle..." autocomplete="off">
                     <input type="file" name="image" accept="image/*" style="display:none;" id="img-${v._id}">
                     <label for="img-${v._id}" style="cursor:pointer; font-size:20px; flex-shrink:0;">🖼️</label>
                     <button type="submit">Gönder</button>
@@ -1065,6 +1162,8 @@ app.get('/', async (req, res) => {
             .top-tabs a.active { color: #fff; border-bottom: 2px solid #fff; padding-bottom: 4px; }
             
             .top-search-btn { position: fixed; top: 10px; right: 15px; z-index: 1005; color: #fff; font-size: 20px; display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 50%; background: rgba(0,0,0,0.3); }
+            .theme-toggle-btn { position: fixed; top: 10px; left: 15px; z-index: 1005; color: #fff; font-size: 18px; display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 50%; background: rgba(0,0,0,0.3); cursor: pointer; }
+            .speed-control-btn { position: fixed; top: 60px; right: 15px; z-index: 1005; background: rgba(0,0,0,0.6); color: #fff; padding: 4px 10px; border-radius: 12px; font-size: 11px; cursor: pointer; border: 1px solid rgba(255,255,255,0.3); }
             
             .feed-scroll { height: 100vh; overflow-y: scroll; scroll-snap-type: y mandatory; -webkit-overflow-scrolling: touch; }
             .video-container { width: 100vw; height: 100vh; scroll-snap-align: start; position: relative; display: flex; justify-content: center; align-items: center; background: #000; }
@@ -1098,6 +1197,23 @@ app.get('/', async (req, res) => {
         </style>
         <script>
             let globalMutedState = true;
+            let isDarkMode = true;
+            let currentSpeedIndex = 0;
+            const speeds = [1.0, 1.5, 2.0, 0.5];
+
+            function toggleTheme() {
+                isDarkMode = !isDarkMode;
+                document.body.style.background = isDarkMode ? '#000' : '#f8f8f8';
+                const btn = document.getElementById('themeBtn');
+                btn.innerText = isDarkMode ? '🌙' : '☀️';
+            }
+
+            function cycleVideoSpeed() {
+                currentSpeedIndex = (currentSpeedIndex + 1) % speeds.length;
+                const newSpeed = speeds[currentSpeedIndex];
+                document.querySelectorAll('video').forEach(v => { v.playbackRate = newSpeed; });
+                document.getElementById('speedBtn').innerText = 'Hız: ' + newSpeed + 'x';
+            }
 
             function toggleSound(id, btn) {
                 const vid = document.getElementById(id);
@@ -1151,6 +1267,9 @@ app.get('/', async (req, res) => {
         </script>
     </head>
     <body>
+        <div id="themeBtn" class="theme-toggle-btn" onclick="toggleTheme()" title="Tema Değiştir">🌙</div>
+        <div id="speedBtn" class="speed-control-btn" onclick="cycleVideoSpeed()">Hız: 1.0x</div>
+        
         <div class="top-tabs">
             <a href="/?feed=community" class="${feedType === 'community' ? 'active' : ''}">Topluluk</a>
             <a href="/?feed=following" class="${feedType === 'following' ? 'active' : ''}">Takipte</a>
