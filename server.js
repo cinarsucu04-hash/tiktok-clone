@@ -1570,7 +1570,13 @@ app.post('/create-group', async (req, res) => {
     let memberList = members.split(',').map(m => m.trim().toLowerCase());
     memberList.push(req.session.user.username.toLowerCase());
     memberList = Array.from(new Set(memberList));
-    await groupsCol.insertOne({ groupName: groupName.trim(), members: memberList, createdBy: req.session.user.username, createdAt: new Date() });
+    await groupsCol.insertOne({ 
+        groupName: groupName.trim(), 
+        members: memberList, 
+        admins: [req.session.user.username.toLowerCase()],
+        createdBy: req.session.user.username.toLowerCase(), 
+        createdAt: new Date() 
+    });
     res.redirect('/inbox');
 });
 
@@ -1593,9 +1599,9 @@ app.get('/chat/:targetUser', async (req, res) => {
     <html lang="tr">
     <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Sohbet</title><style>${globalStyles} body{background:#000; color:#fff;}</style></head>
     <body>
-        <div style="position:fixed; top:0; left:0; width:100%; height:60px; background:#121212; display:flex; align-items:center; padding:0 15px; border-bottom:1px solid #222; z-index:100;">
-            <a href="/inbox" style="font-size:24px; font-weight:bold; color:#fff; margin-right:12px;">‹</a>
-            <div style="font-weight:bold; font-size:15px;">${target.nickname}</div>
+        <div style="position:fixed; top:0; left:0; width:100%; height:60px; background:#121212; display:flex; align-items:center; justify-content:space-between; padding:0 15px; border-bottom:1px solid #222; z-index:100;">
+            <div style="display:flex; align-items:center; gap:12px;"><a href="/inbox" style="font-size:24px; font-weight:bold; color:#fff;">‹</a><div style="font-weight:bold; font-size:15px;">${target.nickname}</div></div>
+            <a href="/clear-private-chat/${target.username}" onclick="return confirm('Sohbet geçmişi silinsin mi?')" style="color:#ff4d4d; font-size:13px;">Sohbeti Sil 🗑️</a>
         </div>
         <div style="padding:75px 15px 90px 15px;">${chatHTML || '<p style="text-align:center; color:#888;">Mesaj yok.</p>'}</div>
         <form action="/send-msg/${target.username}" method="POST" style="position:fixed; bottom:0; left:0; width:100%; background:#121212; padding:10px 15px; border-top:1px solid #222; display:flex; gap:12px; z-index:100;">
@@ -1604,6 +1610,14 @@ app.get('/chat/:targetUser', async (req, res) => {
         </form>
     </body>
     </html>`);
+});
+
+app.get('/clear-private-chat/:partner', async (req, res) => {
+    if (!req.session.user || !isConnected) return res.redirect('/login');
+    const myUser = req.session.user.username;
+    const partner = req.params.partner.toLowerCase();
+    await messagesCol.deleteMany({ $or: [{ sender: myUser, receiver: partner }, { sender: partner, receiver: myUser }] });
+    res.redirect(`/chat/${partner}`);
 });
 
 app.post('/send-msg/:targetUser', async (req, res) => {
@@ -1616,21 +1630,67 @@ app.get('/group-chat/:groupId', async (req, res) => {
     if (!req.session.user || !isConnected) return res.redirect('/login');
     try {
         const group = await groupsCol.findOne({ _id: new ObjectId(req.params.groupId) });
-        if (!group || !group.members.includes(req.session.user.username.toLowerCase())) return res.send("Yetkiniz yok.");
+        const myUsername = req.session.user.username.toLowerCase();
+        if (!group || !group.members.includes(myUsername)) return res.send("Yetkiniz yok.");
+
+        const isCreator = group.createdBy === myUsername;
+        const admins = group.admins || [];
+        const isAdmin = admins.includes(myUsername);
+
         const messages = await messagesCol.find({ receiverGroup: group._id.toString() }).sort({ _id: 1 }).toArray();
         let chatHTML = '';
         messages.forEach(m => {
-            const isMe = m.sender === req.session.user.username;
-            chatHTML += `<div style="display:flex; flex-direction:column; align-items:${isMe ? 'flex-end' : 'flex-start'}; margin-bottom:12px;"><div style="font-size:11px; color:#888;">@${m.sender}</div><div style="background:${isMe ? '#FE2C55' : '#222'}; color:#fff; padding:10px 16px; border-radius:18px; font-size:14px;">${m.text}</div></div>`;
+            const isMe = m.sender === myUsername;
+            let adminBadge = admins.includes(m.sender.toLowerCase()) ? ' <span style="color:#25F4EE; font-size:10px;">[Yönetici]</span>' : '';
+            chatHTML += `<div style="display:flex; flex-direction:column; align-items:${isMe ? 'flex-end' : 'flex-start'}; margin-bottom:12px;"><div style="font-size:11px; color:#888;">@${m.sender}${adminBadge}</div><div style="background:${isMe ? '#FE2C55' : '#222'}; color:#fff; padding:10px 16px; border-radius:18px; font-size:14px;">${m.text}</div></div>`;
         });
+
+        let membersManageHTML = '';
+        group.members.forEach(member => {
+            let isMemberAdmin = admins.includes(member);
+            let actionButtons = '';
+            if (isCreator && member !== myUsername) {
+                if (!isMemberAdmin) {
+                    actionButtons += `<a href="/group/${group._id}/make-admin/${member}" style="color:#25F4EE; font-size:11px; margin-right:8px;">Yönetici Yap ⭐</a>`;
+                }
+                actionButtons += `<a href="/group/${group._id}/kick/${member}" style="color:#ff4d4d; font-size:11px;" onclick="return confirm('@${member} gruptan atılsın mı?')">At ❌</a>`;
+            } else if (isAdmin && !isCreator && member !== myUsername && !admins.includes(member)) {
+                actionButtons += `<a href="/group/${group._id}/kick/${member}" style="color:#ff4d4d; font-size:11px;" onclick="return confirm('@${member} gruptan atılsın mı?')">At ❌</a>`;
+            }
+            membersManageHTML += `<div style="display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid #333; font-size:13px;"><span>@${member} ${isMemberAdmin ? '(Yönetici)' : ''}</span><div>${actionButtons}</div></div>`;
+        });
+
         res.send(`
         <!DOCTYPE html>
         <html lang="tr">
         <head><meta charset="UTF-8"><title>Grup</title><style>${globalStyles} body{background:#000; color:#fff;}</style></head>
         <body>
-            <div style="position:fixed; top:0; left:0; width:100%; height:60px; background:#121212; display:flex; align-items:center; padding:0 15px; border-bottom:1px solid #222;"><a href="/inbox" style="font-size:24px; color:#fff; margin-right:12px;">‹</a><b>${group.groupName}</b></div>
+            <div style="position:fixed; top:0; left:0; width:100%; height:60px; background:#121212; display:flex; align-items:center; justify-content:space-between; padding:0 15px; border-bottom:1px solid #222; z-index:100;">
+                <div style="display:flex; align-items:center; gap:10px;"><a href="/inbox" style="font-size:24px; color:#fff;">‹</a><b>👥 ${group.groupName}</b></div>
+                <div style="display:flex; gap:10px; align-items:center;">
+                    <button onclick="document.getElementById('groupSettingsModal').style.display='flex'" style="background:#333; color:#fff; border:none; padding:6px 10px; border-radius:6px; font-size:12px; cursor:pointer;">Ayarlar ⚙️</button>
+                    <a href="/leave-group/${group._id}" onclick="return confirm('Gruptan çıkmak istiyor musunuz?')" style="color:#ff4d4d; font-size:12px;">Çık 🚪</a>
+                </div>
+            </div>
+            
             <div style="padding:75px 15px 90px 15px;">${chatHTML || '<p style="text-align:center; color:#888;">Mesaj yok.</p>'}</div>
-            <form action="/send-group-msg/${group._id}" method="POST" style="position:fixed; bottom:0; left:0; width:100%; background:#121212; padding:10px 15px; border-top:1px solid #222; display:flex; gap:12px;"><input type="text" name="text" placeholder="Mesaj..." required style="flex-grow:1; background:#222; border:none; border-radius:24px; padding:10px 16px; color:#fff;"><button type="submit" style="background:#FE2C55; color:#fff; border:none; border-radius:18px; padding:8px 14px; font-weight:bold;">Gönder</button></form>
+            
+            <form action="/send-group-msg/${group._id}" method="POST" style="position:fixed; bottom:0; left:0; width:100%; background:#121212; padding:10px 15px; border-top:1px solid #222; display:flex; gap:12px; z-index:100;">
+                <input type="text" name="text" placeholder="Gruba mesaj yaz..." required style="flex-grow:1; background:#222; border:none; border-radius:24px; padding:10px 16px; color:#fff; outline:none;">
+                <button type="submit" style="background:#FE2C55; color:#fff; border:none; border-radius:18px; padding:8px 14px; font-weight:bold; cursor:pointer;">Gönder</button>
+            </form>
+
+            <div id="groupSettingsModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); z-index:200000; justify-content:center; align-items:center;">
+                <div style="background:#1f1f1f; padding:20px; border-radius:12px; width:360px; max-height:80vh; overflow-y:auto; color:#fff;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                        <h3 style="margin:0;">Grup Yönetimi</h3>
+                        <span onclick="document.getElementById('groupSettingsModal').style.display='none'" style="cursor:pointer; font-size:20px;">✕</span>
+                    </div>
+                    <div style="margin-bottom:15px;"><a href="/clear-group-chat/${group._id}" onclick="return confirm('Grup sohbet geçmişi silinsin mi?')" style="color:#ff4d4d; font-size:13px; font-weight:bold;">Sohbet Geçmişini Temizle 🗑️</a></div>
+                    <h4 style="margin:0 0 10px 0; font-size:14px; color:#aaa;">Üyeler</h4>
+                    <div>${membersManageHTML}</div>
+                </div>
+            </div>
         </body>
         </html>`);
     } catch(e) { res.send("Hata"); }
@@ -1640,6 +1700,48 @@ app.post('/send-group-msg/:groupId', async (req, res) => {
     if (!req.session.user || !isConnected) return res.redirect('/login');
     await messagesCol.insertOne({ sender: req.session.user.username, receiverGroup: req.params.groupId, text: req.body.text, createdAt: new Date() });
     res.redirect('back');
+});
+
+app.get('/clear-group-chat/:groupId', async (req, res) => {
+    if (!req.session.user || !isConnected) return res.redirect('/login');
+    await messagesCol.deleteMany({ receiverGroup: req.params.groupId });
+    res.redirect(`/group-chat/${req.params.groupId}`);
+});
+
+app.get('/leave-group/:groupId', async (req, res) => {
+    if (!req.session.user || !isConnected) return res.redirect('/login');
+    try {
+        const groupId = new ObjectId(req.params.groupId);
+        const myUsername = req.session.user.username.toLowerCase();
+        await groupsCol.updateOne({ _id: groupId }, { $pull: { members: myUsername, admins: myUsername } });
+    } catch(e){}
+    res.redirect('/inbox');
+});
+
+app.get('/group/:groupId/kick/:username', async (req, res) => {
+    if (!req.session.user || !isConnected) return res.redirect('/login');
+    try {
+        const groupId = new ObjectId(req.params.groupId);
+        const group = await groupsCol.findOne({ _id: groupId });
+        const myUsername = req.session.user.username.toLowerCase();
+        if (group && (group.createdBy === myUsername || (group.admins && group.admins.includes(myUsername)))) {
+            await groupsCol.updateOne({ _id: groupId }, { $pull: { members: req.params.username.toLowerCase(), admins: req.params.username.toLowerCase() } });
+        }
+    } catch(e){}
+    res.redirect(`/group-chat/${req.params.groupId}`);
+});
+
+app.get('/group/:groupId/make-admin/:username', async (req, res) => {
+    if (!req.session.user || !isConnected) return res.redirect('/login');
+    try {
+        const groupId = new ObjectId(req.params.groupId);
+        const group = await groupsCol.findOne({ _id: groupId });
+        const myUsername = req.session.user.username.toLowerCase();
+        if (group && group.createdBy === myUsername) {
+            await groupsCol.updateOne({ _id: groupId }, { $addToSet: { admins: req.params.username.toLowerCase() } });
+        }
+    } catch(e){}
+    res.redirect(`/group-chat/${req.params.groupId}`);
 });
 
 app.get('/', async (req, res) => {
@@ -1703,9 +1805,9 @@ app.get('/', async (req, res) => {
                     </a>
                     ${avatarWrapperHTML}
                 </div>
-                <a href="/like/${v._id}" class="action-btn" style="color:${isLiked ? '#FE2C55' : '#fff'};">♥<span>${v.likes}</span></a>
+                <a href="/like/${v._id}" class="action-btn" style="color:${isLiked ? '#FE2C55' : '#fff'};">♥<span style="color:${isLiked ? '#FE2C55' : '#fff'};">${v.likes}</span></a>
                 <a href="#" onclick="openComments('${v._id}'); return false;" class="action-btn">💬<span>${comments.length}</span></a>
-                <a href="/favorite/${v._id}" class="action-btn" style="color:${isFav ? '#FFD700' : '#fff'};">★<span>${v.favorites}</span></a>
+                <a href="/favorite/${v._id}" class="action-btn" style="color:${isFav ? '#FFD700' : '#fff'};">★<span style="color:${isFav ? '#FFD700' : '#fff'};">${v.favorites}</span></a>
                 <a href="/report-page/${v.username}" class="action-btn" style="font-size:12px;" title="Şikayet Et">⚠️</a>
 
                 ${canDeleteVideo ? `<a href="/delete-video/${v._id}" onclick="return confirm('Silmek istiyor musun?');" class="action-btn" style="background:rgba(255,0,0,0.6); margin-top:5px;">🗑️<span>Sil</span></a>` : ''}
