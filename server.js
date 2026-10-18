@@ -119,7 +119,7 @@ app.use((req, res, next) => {
 
 app.use((req, res, next) => {
     if (isMaintenance && req.session?.user?.username?.toLowerCase() !== 'tiktok' && !req.path.startsWith('/login') && !req.path.startsWith('/register') && !req.path.startsWith('/mod-panel')) {
-        return res.status(503).send("<h2 style='text-align:center; margin-top:25vh; color:#FE2C55;'>🛠️ Platform Bakımda</h2><p style='text-align:center; color:#888;'>Şu anda sistem güncellenmektedir. Lütfen daha sonra tekrar deneyin.</p>");
+        return res.status(503).send("<h2 style='text-align:center; margin-top:25vh; color:#FE2C55; font-family:sans-serif;'>🛠️ Platform Bakımda</h2><p style='text-align:center; color:#888; font-family:sans-serif;'>Şu anda sistem güncellenmektedir. Lütfen daha sonra tekrar deneyin.</p>");
     }
     next();
 });
@@ -290,7 +290,7 @@ app.get('/logout', async (req, res) => {
     req.session.destroy(() => res.redirect('/login')); 
 });
 
-// ================= YENİ ÖZELLİKLER VE ŞİKAYET SİSTEMİ ROTALARI =================
+// Rapor / Şikayet Sayfası
 app.get('/report-page/:targetUser', async (req, res) => {
     if (!req.session.user) return res.redirect('/login');
     const target = req.params.targetUser;
@@ -334,7 +334,6 @@ app.post('/submit-report/:targetUser', upload.single('evidence'), async (req, re
         res.send("<script>alert('Şikayetiniz mod paneline iletildi!');window.location='/';</script>");
     } catch(e) { res.send("<script>alert('Hata oluştu!');window.location='/';</script>"); }
 });
-// =========================================================================
 
 app.get('/activity', async (req, res) => {
     if (!req.session.user || !isConnected) return res.redirect('/login');
@@ -462,7 +461,7 @@ app.get('/explore', async (req, res) => {
     </html>`);
 });
 
-// ================= MOD PANELİ & RAPORLAR SEKMESİ =================
+// Mod Paneli & Şikayetler Sekmesi
 app.get('/mod-panel', async (req, res) => {
     if (!req.session.user || !isConnected) return res.redirect('/login');
     if (req.session.user.username.toLowerCase() !== 'tiktok') {
@@ -611,7 +610,6 @@ app.get('/mod/resolve-report/:id', async (req, res) => {
     try { if (reportsCol) await reportsCol.deleteOne({ _id: new ObjectId(req.params.id) }); } catch(e){}
     res.redirect('/mod-panel?tab=reports');
 });
-// =========================================================================
 
 app.post('/mod/announcement', async (req, res) => {
     if (!req.session.user || req.session.user.username.toLowerCase() !== 'tiktok') return res.redirect('/login');
@@ -994,14 +992,13 @@ app.post('/comment/:id', upload.single('image'), async (req, res) => {
                 username: req.session.user.username, 
                 nickname: req.session.user.nickname,
                 avatar: req.session.user.avatar || '',
-                comment: commentText, image: imageUrl, createdAt: new Date() 
+                comment: commentText, image: imageUrl, likes: 0, createdAt: new Date() 
             });
         }
     } catch (err) { console.error(err); }
     res.redirect('back');
 });
 
-// Yeni eklenen ek özellik rotaları (Yorum sabitleme, izleme geçmişi kaydı vb.)
 app.get('/pin-comment/:commentId', async (req, res) => {
     if (!req.session.user || !isConnected) return res.redirect('/login');
     try {
@@ -1011,6 +1008,14 @@ app.get('/pin-comment/:commentId', async (req, res) => {
             await commentsCol.updateMany({ video_id: comment.video_id }, { $set: { isPinned: false } });
             await commentsCol.updateOne({ _id: comment._id }, { $set: { isPinned: newPinned } });
         }
+    } catch(e) {}
+    res.redirect('back');
+});
+
+app.get('/like-comment/:commentId', async (req, res) => {
+    if (!req.session.user || !isConnected) return res.redirect('/login');
+    try {
+        await commentsCol.updateOne({ _id: new ObjectId(req.params.commentId) }, { $inc: { likes: 1 } });
     } catch(e) {}
     res.redirect('back');
 });
@@ -1232,7 +1237,7 @@ app.get('/profile/:username', async (req, res) => {
             ${avatarContainerHTML}
             <h2 style="margin:5px 0; display:flex; align-items:center; justify-content:center; gap:4px;">${lockIconHTML}${targetUser.nickname} ${verifiedBadgeHTML}</h2>
             <p style="color:#888; margin:0; font-size:13px;">@${targetUser.username}</p>
-            <div style="margin-top:10px;"><a href="/report-page/${targetUser.username}" style="color:#FE2C55; font-size:12px; font-weight:bold;">Şikayet Et ⚠️</a> | <a href="/block/${targetUser.username}" style="color:#aaa; font-size:12px;">Engelle 🚫</a></div>
+            <div style="margin-top:10px;"><a href="/report-page/${targetUser.username}" style="color:#FE2C55; font-size:12px; font-weight:bold;">Şikayet Et ⚠️</a></div>
             <div class="stats">
                 <div><span>${followingCount}</span>Takip edilen</div>
                 <div><span>${followersCount}</span>Takipçi</div>
@@ -1669,7 +1674,8 @@ app.get('/', async (req, res) => {
         comments.forEach(c => {
             let commenterAvatar = c.avatar ? `<img src="${c.avatar}" style="width:100%; height:100%; border-radius:50%; object-fit:cover;">` : (c.nickname ? c.nickname.charAt(0).toUpperCase() : '👤');
             let pinBtn = (v.username === req.session.user.username || isMod) ? `<a href="/pin-comment/${c._id}" style="font-size:10px; color:${c.isPinned ? '#FE2C55' : '#888'}; margin-left:8px;">${c.isPinned ? '📌 Sabitlendi' : 'Sabitle'}</a>` : '';
-            commentList += `<div class="comment-item" style="${c.isPinned ? 'background:rgba(254,44,85,0.08); padding:6px; border-radius:6px;' : ''}"><div class="comment-avatar">${commenterAvatar}</div><div class="comment-content" style="flex-grow:1;"><div class="comment-author">${c.nickname || c.username} ${pinBtn}</div><div class="comment-text">${c.comment}</div></div></div>`;
+            let commentLikeBtn = `<a href="/like-comment/${c._id}" style="font-size:10px; color:#888; margin-left:8px;">❤️ ${c.likes || 0}</a>`;
+            commentList += `<div class="comment-item" style="${c.isPinned ? 'background:rgba(254,44,85,0.08); padding:6px; border-radius:6px;' : ''}"><div class="comment-avatar">${commenterAvatar}</div><div class="comment-content" style="flex-grow:1;"><div class="comment-author">${c.nickname || c.username} ${pinBtn} ${commentLikeBtn}</div><div class="comment-text">${c.comment}</div></div></div>`;
         });
 
         let formattedCaption = (v.caption || '').replace(/(#\w+)/g, '<a href="/search?q=$1" style="color:#25F4EE; font-weight:bold;">$1</a>');
