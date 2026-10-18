@@ -245,6 +245,80 @@ app.get('/logout', async (req, res) => {
     req.session.destroy(() => res.redirect('/login')); 
 });
 
+// AÇILIR MENÜLÜ AKTİVİTE SAYFASI (Eksiksiz)
+app.get('/activity', async (req, res) => {
+    if (!req.session.user || !isConnected) return res.redirect('/login');
+    const tab = req.query.tab || 'activity';
+
+    let activityListHTML = '';
+    if (tab === 'activity') {
+        activityListHTML = `
+        <div style="display:flex; align-items:center; justify-content:space-between; padding:12px 15px; border-bottom:1px solid #1a1a1a;">
+            <div style="display:flex; align-items:center; gap:12px;">
+                <div style="width:44px; height:44px; background:#FE2C55; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:bold;">👤</div>
+                <div><b>nanelikek Cumhuriyeti</b> videonuzu beğendi. <div style="font-size:12px; color:#888;">8s</div></div>
+            </div>
+            <div style="width:40px; height:50px; background:#222; border-radius:4px;"></div>
+        </div>`;
+    } else if (tab === 'likes') {
+        activityListHTML = '<p style="text-align:center; color:#888; padding:40px;">Beğeniler ve kaydetmeler burada görünür.</p>';
+    } else if (tab === 'comments') {
+        activityListHTML = '<p style="text-align:center; color:#888; padding:40px;">Yorumlar burada görünür.</p>';
+    } else if (tab === 'followers') {
+        const followers = await followsCol.find({ following_id: new ObjectId(req.session.user._id) }).toArray();
+        const followerUsers = await usersCol.find({ _id: { $in: followers.map(f => f.follower_id) } }).toArray();
+        
+        followerUsers.forEach(u => {
+            activityListHTML += `
+            <div style="display:flex; align-items:center; justify-content:space-between; padding:12px 15px; border-bottom:1px solid #1a1a1a;">
+                <div style="display:flex; align-items:center; gap:12px;">
+                    <div style="width:44px; height:44px; background:#FE2C55; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:bold;">${u.nickname.charAt(0)}</div>
+                    <div><b>${u.nickname}</b> sizi takip etmeye başladı. <div style="font-size:12px; color:#888;">Yeni</div></div>
+                </div>
+                <a href="/profile/${u.username}" style="background:#FE2C55; color:#fff; padding:6px 14px; border-radius:4px; font-size:12px; font-weight:bold;">Profili Gör</a>
+            </div>`;
+        });
+        if(followerUsers.length === 0) activityListHTML = '<p style="text-align:center; color:#888; padding:40px;">Henüz yeni takipçi yok.</p>';
+    }
+
+    res.send(`
+    <!DOCTYPE html>
+    <html lang="tr">
+    <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Aktivite</title>
+        <style>
+            ${globalStyles}
+            .act-header { display:flex; align-items:center; justify-content:space-between; padding:12px 15px; border-bottom:1px solid #222; font-size:16px; font-weight:bold; position:sticky; top:0; background:#000; z-index:100; }
+            .dropdown-modal { display:none; position:absolute; top:50px; left:50%; transform:translateX(-50%); background:#1f1f1f; border-radius:12px; width:240px; box-shadow:0 5px 20px rgba(0,0,0,0.8); z-index:200; overflow:hidden; }
+            .dropdown-item { padding:14px 15px; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid #333; font-size:14px; cursor:pointer; color:#fff; }
+        </style>
+        <script>
+            function toggleDropdown() {
+                const m = document.getElementById('actDropdown');
+                m.style.display = m.style.display === 'flex' ? 'none' : 'flex';
+            }
+        </script>
+    </head>
+    <body>
+        <div class="act-header">
+            <a href="/inbox" style="font-size:22px;">‹</a>
+            <div onclick="toggleDropdown()" style="cursor:pointer; display:flex; align-items:center; gap:5px;">
+                <span>${tab === 'followers' ? 'Yeni takipçiler' : tab === 'likes' ? 'Beğeniler ve kaydetmeler' : tab === 'comments' ? 'Yorumlar' : 'Aktivite'}</span> <span style="font-size:12px;">▼</span>
+            </div>
+            <div style="width:22px;"></div>
+        </div>
+
+        <div id="actDropdown" class="dropdown-modal" style="flex-direction:column;">
+            <a href="/activity?tab=activity" class="dropdown-item"><span>Aktivite</span> ${tab === 'activity' ? '<span style="color:#FE2C55; font-weight:bold;">✓</span>' : ''}</a>
+            <a href="/activity?tab=likes" class="dropdown-item"><span>Beğeniler ve kaydetmeler</span> ${tab === 'likes' ? '<span style="color:#FE2C55; font-weight:bold;">✓</span>' : ''}</a>
+            <a href="/activity?tab=comments" class="dropdown-item"><span>Yorumlar</span> ${tab === 'comments' ? '<span style="color:#FE2C55; font-weight:bold;">✓</span>' : ''}</a>
+            <a href="/activity?tab=followers" class="dropdown-item"><span>Yeni takipçiler</span> ${tab === 'followers' ? '<span style="color:#FE2C55; font-weight:bold;">✓</span>' : ''}</a>
+        </div>
+
+        <div>${activityListHTML}</div>
+    </body>
+    </html>`);
+});
+
 app.get('/explore', async (req, res) => {
     if (!req.session.user || !isConnected) return res.redirect('/login');
     const topVideos = await videosCol.find({}).sort({ likes: -1 }).limit(10).toArray();
@@ -869,6 +943,7 @@ app.get('/follow/:id', async (req, res) => {
     res.redirect('back');
 });
 
+// PROFİL GÜNCELLEME (Banner ve Gizli Hesap Destekli)
 app.post('/update-profile', upload.fields([{ name: 'avatar', maxCount: 1 }, { name: 'banner', maxCount: 1 }]), async (req, res) => {
     if (!req.session.user || !isConnected) return res.redirect('/login');
     try {
@@ -1052,14 +1127,28 @@ app.get('/profile/:username', async (req, res) => {
         </div>
 
         <div id="editModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); z-index:200000; justify-content:center; align-items:center;">
-            <div style="background:#1f1f1f; padding:25px; border-radius:12px; width:320px; text-align:center; color:#fff;">
-                <h3>Profili Düzenle</h3>
+            <div style="background:#1f1f1f; padding:25px; border-radius:12px; width:340px; text-align:left; color:#fff;">
+                <h3 style="text-align:center; margin-top:0;">Profili Düzenle</h3>
                 <form action="/update-profile" method="POST" enctype="multipart/form-data" style="display:flex; flex-direction:column; gap:10px;">
+                    <label style="font-size:11px; color:#aaa;">Görünen Ad:</label>
                     <input type="text" name="nickname" value="${targetUser.nickname}" required style="padding:10px; background:#2f2f2f; border:none; color:#fff; border-radius:6px;">
-                    <input type="text" name="bio" value="${targetUser.bio}" required style="padding:10px; background:#2f2f2f; border:none; color:#fff; border-radius:6px;">
-                    <label style="font-size:11px; color:#aaa; text-align:left;">Profil Fotoğrafı:</label><input type="file" name="avatar" accept="image/*">
-                    <button type="submit" style="background:#FE2C55; color:#fff; padding:10px; border:none; border-radius:6px; font-weight:bold; cursor:pointer; margin-top:10px;">Kaydet</button>
-                    <button type="button" onclick="document.getElementById('editModal').style.display='none'" style="background:#333; color:#fff; padding:8px; border:none; border-radius:6px; cursor:pointer;">İptal</button>
+                    
+                    <label style="font-size:11px; color:#aaa;">Biyografi:</label>
+                    <input type="text" name="bio" value="${targetUser.bio || ''}" style="padding:10px; background:#2f2f2f; border:none; color:#fff; border-radius:6px;">
+
+                    <label style="font-size:11px; color:#aaa;">Profil Fotoğrafı:</label>
+                    <input type="file" name="avatar" accept="image/*">
+
+                    <label style="font-size:11px; color:#aaa;">Banner (Arka Plan) Görseli:</label>
+                    <input type="file" name="banner" accept="image/*">
+
+                    <div style="display:flex; align-items:center; gap:10px; background:#262626; padding:10px; border-radius:6px; margin-top:5px;">
+                        <input type="checkbox" name="isPrivate" value="yes" ${targetUser.isPrivate ? 'checked' : ''} style="width:20px; height:20px; accent-color:#FE2C55;">
+                        <label style="font-size:14px; font-weight:bold;">Gizli Hesap 🔒</label>
+                    </div>
+
+                    <button type="submit" style="background:#FE2C55; color:#fff; padding:12px; border:none; border-radius:6px; font-weight:bold; cursor:pointer; margin-top:10px;">Kaydet</button>
+                    <button type="button" onclick="document.getElementById('editModal').style.display='none'" style="background:#333; color:#fff; padding:10px; border:none; border-radius:6px; cursor:pointer;">İptal</button>
                 </form>
             </div>
         </div>
