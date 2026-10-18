@@ -38,14 +38,50 @@ MongoClient.connect(MONGO_URL)
     })
     .catch(err => console.error("Veritabanı hatası:", err));
 
-const uploadDir = path.join(__dirname, 'public', 'uploads');
-if (!fs.existsSync(uploadDir)) {
-    fs.mkdirSync(uploadDir, { recursive: true });
+// 100 FARKLI DİSK / KLASÖR YÖNETİMİ
+const disks = [];
+for (let i = 1; i <= 100; i++) {
+    const dPath = path.join(__dirname, 'public', `uploads${i}`);
+    if (!fs.existsSync(dPath)) fs.mkdirSync(dPath, { recursive: true });
+    disks.push({ dir: dPath, prefix: `/uploads${i}/` });
+}
+
+function getActiveUploadDir() {
+    const limitSize = 500 * 1024 * 1024; // Her klasör için 500 MB sınır
+
+    for (let i = 0; i < disks.length; i++) {
+        let totalSize = 0;
+        try {
+            const files = fs.readdirSync(disks[i].dir);
+            files.forEach(file => {
+                const filePath = path.join(disks[i].dir, file);
+                const stats = fs.statSync(filePath);
+                if (stats.isFile()) {
+                    totalSize += stats.size;
+                }
+            });
+        } catch (e) {
+            console.error(`Disk ${i+1} okuma hatası:`, e);
+        }
+
+        if (totalSize < limitSize) {
+            return disks[i];
+        }
+    }
+
+    // 100 klasörün hepsi dolduysa en sonuncuya yazmaya devam eder
+    return disks[disks.length - 1];
 }
 
 const storage = multer.diskStorage({
-    destination: (req, file, cb) => cb(null, uploadDir),
-    filename: (req, file, cb) => cb(null, Date.now() + '-' + Math.round(Math.random() * 1E9) + path.extname(file.originalname))
+    destination: (req, file, cb) => {
+        const activeStorage = getActiveUploadDir();
+        cb(null, activeStorage.dir);
+    },
+    filename: (req, file, cb) => {
+        const activeStorage = getActiveUploadDir();
+        cb(null, activeStorage.prefix.replace(/\//g, '') + '-' + Date.now() + '-' + Math.round(Math.random() * 1E9) + path.extname(file.originalname));
+    }
 });
 
 const upload = multer({ storage: storage, limits: { fileSize: 200 * 1024 * 1024 } });
@@ -53,6 +89,12 @@ const upload = multer({ storage: storage, limits: { fileSize: 200 * 1024 * 1024 
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
 app.use(express.static('public'));
+
+// 100 Klasörün Express Statik Rotaları
+for (let i = 1; i <= 100; i++) {
+    app.use(`/uploads${i}`, express.static(path.join(__dirname, 'public', `uploads${i}`)));
+}
+
 app.use(session({ secret: 'tiktok-cloud-key', resave: false, saveUninitialized: true }));
 
 const requestTracker = {};
@@ -245,7 +287,6 @@ app.get('/logout', async (req, res) => {
     req.session.destroy(() => res.redirect('/login')); 
 });
 
-// AÇILIR MENÜLÜ AKTİVİTE SAYFASI (Eksiksiz)
 app.get('/activity', async (req, res) => {
     if (!req.session.user || !isConnected) return res.redirect('/login');
     const tab = req.query.tab || 'activity';
@@ -585,10 +626,12 @@ app.post('/upload-story', upload.single('media'), async (req, res) => {
     try {
         if (!req.file) return res.send("<script>alert('Dosya seçin!'); window.location='/upload-story-page';</script>");
         const isVideo = req.file.mimetype ? req.file.mimetype.startsWith('video') : false;
+        
+        const activeStorage = getActiveUploadDir();
         await storiesCol.insertOne({ 
             user_id: new ObjectId(req.session.user._id), 
             username: req.session.user.username, 
-            mediaUrl: `/uploads/${req.file.filename}`, 
+            mediaUrl: `${activeStorage.prefix}${req.file.filename}`, 
             mediaType: isVideo ? 'video' : 'image', 
             createdAt: new Date() 
         });
@@ -843,11 +886,13 @@ app.post('/upload', upload.single('video'), async (req, res) => {
         if (currentUser && currentUser.isPrivate && visibility === 'Herkese açık') {
             visibility = 'Takipçiler';
         }
+        
+        const activeStorage = getActiveUploadDir();
         await videosCol.insertOne({ 
             user_id: new ObjectId(req.session.user._id), 
             username: req.session.user.username, 
             caption: req.body.caption || '', 
-            filename: `/uploads/${req.file.filename}`, 
+            filename: `${activeStorage.prefix}${req.file.filename}`, 
             song: 'Orijinal Ses', 
             visibility: visibility,
             views: 0, likes: 0, favorites: 0, shares: 0, isPinned: false, createdAt: new Date() 
@@ -859,7 +904,8 @@ app.post('/upload', upload.single('video'), async (req, res) => {
 app.post('/comment/:id', upload.single('image'), async (req, res) => {
     if (!req.session.user || !isConnected) return res.redirect('/login');
     try {
-        let imageUrl = req.file ? `/uploads/${req.file.filename}` : '';
+        const activeStorage = getActiveUploadDir();
+        let imageUrl = req.file ? `${activeStorage.prefix}${req.file.filename}` : '';
         let commentText = (req.body.comment || '').trim();
         if (commentText.startsWith('/tts ')) {
             commentText = '🔊 [Sesli Okuma]: ' + commentText.replace('/tts ', '');
@@ -943,16 +989,18 @@ app.get('/follow/:id', async (req, res) => {
     res.redirect('back');
 });
 
-// PROFİL GÜNCELLEME (Banner ve Gizli Hesap Destekli)
 app.post('/update-profile', upload.fields([{ name: 'avatar', maxCount: 1 }, { name: 'banner', maxCount: 1 }]), async (req, res) => {
     if (!req.session.user || !isConnected) return res.redirect('/login');
     try {
         const { nickname, bio, profileTheme, hideVisitors, restrictedMode, isPrivate } = req.body;
         const userId = new ObjectId(req.session.user._id);
+        const activeStorage = getActiveUploadDir();
+        
         let avatarFile = req.session.user.avatar || '';
-        if (req.files && req.files['avatar']) avatarFile = `/uploads/${req.files['avatar'][0].filename}`;
+        if (req.files && req.files['avatar']) avatarFile = `${activeStorage.prefix}${req.files['avatar'][0].filename}`;
+        
         let bannerFile = req.session.user.banner || '';
-        if (req.files && req.files['banner']) bannerFile = `/uploads/${req.files['banner'][0].filename}`;
+        if (req.files && req.files['banner']) bannerFile = `${activeStorage.prefix}${req.files['banner'][0].filename}`;
 
         const newNickname = nickname || req.session.user.nickname;
         const isHideVis = hideVisitors === 'yes';
