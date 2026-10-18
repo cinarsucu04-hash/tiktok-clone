@@ -13,7 +13,7 @@ const PORT = process.env.PORT || 3000;
 
 const MONGO_URL = process.env.MONGO_URL || "mongodb+srv://cinarsucu04_db_user:46vjLI7sNK7djBeE@cluster0.utveet0.mongodb.net/?retryWrites=true&w=majority";
 
-let db, usersCol, videosCol, commentsCol, followsCol, likesCol, favoritesCol, storiesCol, messagesCol, groupsCol, searchesCol, analyticsCol, announcementsCol, logsCol;
+let db, usersCol, videosCol, commentsCol, followsCol, likesCol, favoritesCol, storiesCol, messagesCol, groupsCol, searchesCol, analyticsCol, announcementsCol, reportsCol, blocksCol, logsCol, watchHistoryCol, draftsCol, collectionsCol;
 let isConnected = false;
 let isMaintenance = false;
 
@@ -32,7 +32,12 @@ MongoClient.connect(MONGO_URL)
         searchesCol = db.collection('searches');
         analyticsCol = db.collection('analytics');
         announcementsCol = db.collection('announcements');
+        reportsCol = db.collection('reports');
+        blocksCol = db.collection('blocks');
         logsCol = db.collection('logs');
+        watchHistoryCol = db.collection('watchHistory');
+        draftsCol = db.collection('drafts');
+        collectionsCol = db.collection('collections');
         isConnected = true;
         console.log("MongoDB veritabanı bağlantısı başarılı!");
     })
@@ -69,7 +74,6 @@ function getActiveUploadDir() {
         }
     }
 
-    // 100 klasörün hepsi dolduysa en sonuncuya yazmaya devam eder
     return disks[disks.length - 1];
 }
 
@@ -90,7 +94,6 @@ app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
 app.use(express.static('public'));
 
-// 100 Klasörün Express Statik Rotaları
 for (let i = 1; i <= 100; i++) {
     app.use(`/uploads${i}`, express.static(path.join(__dirname, 'public', `uploads${i}`)));
 }
@@ -287,6 +290,52 @@ app.get('/logout', async (req, res) => {
     req.session.destroy(() => res.redirect('/login')); 
 });
 
+// ================= YENİ ÖZELLİKLER VE ŞİKAYET SİSTEMİ ROTALARI =================
+app.get('/report-page/:targetUser', async (req, res) => {
+    if (!req.session.user) return res.redirect('/login');
+    const target = req.params.targetUser;
+    res.send(`
+    <!DOCTYPE html><html lang="tr"><head><meta charset="UTF-8"><title>Şikayet Et</title><style>${globalStyles} body{padding:20px;background:#111;}</style></head>
+    <body>
+        <h2>@${target} Kullanıcısını Şikayet Et</h2>
+        <form action="/submit-report/${target}" method="POST" enctype="multipart/form-data" style="display:flex;flex-direction:column;gap:15px;margin-top:20px;max-width:400px;">
+            <label style="font-size:13px;color:#aaa;">Şikayet Nedeni (Neden şikayet ediyorsunuz?):</label>
+            <select name="reason" required style="padding:12px;background:#222;color:#fff;border:1px solid #333;border-radius:6px;">
+                <option value="Uygunsuz İçerik / Taciz">Uygunsuz İçerik / Taciz</option>
+                <option value="Spam / Dolandırıcılık">Spam / Dolandırıcılık</option>
+                <option value="Telif Hakkı İhlali">Telif Hakkı İhlali</option>
+                <option value="Sahte Hesap">Sahte Hesap</option>
+                <option value="Diğer">Diğer</option>
+            </select>
+            <label style="font-size:13px;color:#aaa;">Açıklama:</label>
+            <textarea name="description" placeholder="Detayları yazın..." rows="3" style="padding:10px;background:#222;color:#fff;border:1px solid #333;border-radius:6px;resize:none;"></textarea>
+            <label style="font-size:13px;color:#aaa;">Kanıt Fotoğrafı Ekleyin (Zorunlu):</label>
+            <input type="file" name="evidence" accept="image/*" required style="padding:10px;background:#222;color:#fff;border-radius:6px;">
+            <button type="submit" style="background:#FE2C55;color:#fff;padding:12px;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">Şikayeti Mod Paneline Gönder</button>
+            <a href="/" style="text-align:center;color:#888;font-size:13px;margin-top:10px;">İptal</a>
+        </form>
+    </body></html>`);
+});
+
+app.post('/submit-report/:targetUser', upload.single('evidence'), async (req, res) => {
+    if (!req.session.user || !isConnected) return res.redirect('/login');
+    try {
+        const activeStorage = getActiveUploadDir();
+        const evidenceUrl = req.file ? `${activeStorage.prefix}${req.file.filename}` : '';
+        await reportsCol.insertOne({
+            reporter: req.session.user.username,
+            reportedUser: req.params.targetUser,
+            reason: req.body.reason || 'Belirtilmedi',
+            description: req.body.description || '',
+            evidenceUrl: evidenceUrl,
+            status: 'Beklemede',
+            createdAt: new Date()
+        });
+        res.send("<script>alert('Şikayetiniz mod paneline iletildi!');window.location='/';</script>");
+    } catch(e) { res.send("<script>alert('Hata oluştu!');window.location='/';</script>"); }
+});
+// =========================================================================
+
 app.get('/activity', async (req, res) => {
     if (!req.session.user || !isConnected) return res.redirect('/login');
     const tab = req.query.tab || 'activity';
@@ -297,7 +346,7 @@ app.get('/activity', async (req, res) => {
         <div style="display:flex; align-items:center; justify-content:space-between; padding:12px 15px; border-bottom:1px solid #1a1a1a;">
             <div style="display:flex; align-items:center; gap:12px;">
                 <div style="width:44px; height:44px; background:#FE2C55; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:bold;">👤</div>
-                <div><b>nanelikek Cumhuriyeti</b> videonuzu beğendi. <div style="font-size:12px; color:#888;">8s</div></div>
+                <div><b>TikTok Kullanıcısı</b> videonuzu beğendi. <div style="font-size:12px; color:#888;">8s</div></div>
             </div>
             <div style="width:40px; height:50px; background:#222; border-radius:4px;"></div>
         </div>`;
@@ -413,21 +462,41 @@ app.get('/explore', async (req, res) => {
     </html>`);
 });
 
+// ================= MOD PANELİ & RAPORLAR SEKMESİ =================
 app.get('/mod-panel', async (req, res) => {
     if (!req.session.user || !isConnected) return res.redirect('/login');
     if (req.session.user.username.toLowerCase() !== 'tiktok') {
         return res.send("<script>alert('Bu sayfaya yalnızca @tiktok resmi hesabı erişebilir!'); window.location='/';</script>");
     }
 
+    const subTab = req.query.tab || 'reports';
     const totalUsers = await usersCol.countDocuments({});
     const totalVideos = await videosCol.countDocuments({});
-    const totalReports = await commentsCol.countDocuments({});
+    const allReports = await reportsCol ? await reportsCol.find({}).sort({ createdAt: -1 }).toArray() : [];
+    const totalReports = allReports.length;
+    
     const allUsers = await usersCol.find({}).project({ password: 0 }).toArray();
     const allVideos = await videosCol.find({}).sort({ createdAt: -1 }).limit(20).toArray();
     const systemLogs = await logsCol ? await logsCol.find({}).sort({ createdAt: -1 }).limit(10).toArray() : [];
 
     const memoryUsage = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2);
     const uptimeMinutes = (process.uptime() / 60).toFixed(1);
+
+    let contentHTML = '';
+    if (subTab === 'reports') {
+        allReports.forEach(r => {
+            contentHTML += `
+            <div style="background:#1a1a1a; padding:15px; border-radius:8px; margin-bottom:12px; border:1px solid #333;">
+                <div><b>Şikayet Eden (Kim):</b> @${r.reporter}</div>
+                <div><b>Şikayet Edilen / Hedef:</b> @${r.reportedUser}</div>
+                <div><b>Şikayet Nedeni (Niye):</b> <span style="color:#FE2C55; font-weight:bold;">${r.reason}</span></div>
+                <div><b>Açıklama:</b> ${r.description || 'Yok'}</div>
+                ${r.evidenceUrl ? `<div style="margin-top:10px;"><b>Kanıt Fotoğrafı:</b><br><a href="${r.evidenceUrl}" target="_blank"><img src="${r.evidenceUrl}" style="width:120px; height:120px; object-fit:cover; border-radius:6px; border:1px solid #444; margin-top:5px;"></a></div>` : ''}
+                <div style="margin-top:12px;"><a href="/mod/resolve-report/${r._id}" style="background:#25F4EE; color:#000; padding:6px 12px; border-radius:4px; font-size:12px; font-weight:bold;">Şikayeti Çöz / Sil ✔️</a></div>
+            </div>`;
+        });
+        if (allReports.length === 0) contentHTML = '<p style="color:#888;">Henüz rapor bulunmuyor.</p>';
+    }
 
     let usersTableHTML = '';
     allUsers.forEach(u => {
@@ -437,7 +506,7 @@ app.get('/mod-panel', async (req, res) => {
             <td style="padding:10px;">${u.nickname}</td>
             <td style="padding:10px;">
                 <a href="/mod/ban/${u._id}" onclick="return confirm('@${u.username} kullanıcısına ban atılsın mı?')" style="background:#ff4d4d; color:#fff; padding:4px 8px; border-radius:4px; font-size:12px;">Banla 🚫</a>
-                <a href="/mod/verify/${u._id}" style="background:#20D5EC; color:#000; padding:4px 8px; border-radius:4px; font-size:12px; font-weight:bold;">${u.isVerified ? 'Tik Al' : 'Mavi Tik ⭐'}</a>
+                <a href="/mod/verify/${u._id}" style="background:#20D5EC; color:#000; padding:4px 8px; border-radius:4px; font-size:12px; font-weight:bold;">${u.isVerified ? 'Tik Kaldır' : 'Mavi Tik ⭐'}</a>
             </td>
         </tr>`;
     });
@@ -455,9 +524,6 @@ app.get('/mod-panel', async (req, res) => {
             </td>
         </tr>`;
     });
-
-    let logsHTML = '';
-    systemLogs.forEach(l => { logsHTML += `<div style="padding:4px 0; border-bottom:1px solid #222; font-size:11px; color:#aaa;">[${new Date(l.createdAt).toLocaleTimeString()}] <b>@${l.admin}</b>: ${l.action}</div>`; });
 
     const navbarHTML = await getNavbar('mod', req.session.user, false);
 
@@ -480,12 +546,17 @@ app.get('/mod-panel', async (req, res) => {
     </head>
     <body>
         <h2 style="display:flex; align-items:center; gap:10px; margin-top:0;">🛡️ @tiktok Resmi Moderatör ve Yönetim Paneli</h2>
-        <p style="color:#888; font-size:13px; margin-bottom:20px;">Bu panel yalnızca @tiktok kullanıcısına özel olarak yetkilendirilmiştir. Tüm platformu buradan denetleyebilirsiniz.</p>
+        <p style="color:#888; font-size:13px; margin-bottom:20px;">Bu panel yalnızca @tiktok kullanıcısına özel olarak yetkilendirilmiştir.</p>
 
         <div class="stats-grid">
             <div class="stat-card"><h3>${totalUsers}</h3><p>Toplam Kullanıcı</p></div>
             <div class="stat-card"><h3>${totalVideos}</h3><p>Yüklenen Video</p></div>
-            <div class="stat-card"><h3>${totalReports}</h3><p>İçerik / Yorum</p></div>
+            <div class="stat-card"><h3>${totalReports}</h3><p>Gelen Şikayetler</p></div>
+        </div>
+
+        <div class="section-box" style="border-color:#FE2C55;">
+            <h3 style="margin-top:0; color:#FE2C55; font-size:15px;">🚨 Kullanıcı Şikayetleri ve Kanıtları</h3>
+            <div>${contentHTML}</div>
         </div>
 
         <div class="section-box" style="border-color:#25F4EE;">
@@ -534,6 +605,13 @@ app.get('/mod-panel', async (req, res) => {
     </body>
     </html>`);
 });
+
+app.get('/mod/resolve-report/:id', async (req, res) => {
+    if (!req.session.user || req.session.user.username.toLowerCase() !== 'tiktok') return res.redirect('/login');
+    try { if (reportsCol) await reportsCol.deleteOne({ _id: new ObjectId(req.params.id) }); } catch(e){}
+    res.redirect('/mod-panel?tab=reports');
+});
+// =========================================================================
 
 app.post('/mod/announcement', async (req, res) => {
     if (!req.session.user || req.session.user.username.toLowerCase() !== 'tiktok') return res.redirect('/login');
@@ -923,6 +1001,20 @@ app.post('/comment/:id', upload.single('image'), async (req, res) => {
     res.redirect('back');
 });
 
+// Yeni eklenen ek özellik rotaları (Yorum sabitleme, izleme geçmişi kaydı vb.)
+app.get('/pin-comment/:commentId', async (req, res) => {
+    if (!req.session.user || !isConnected) return res.redirect('/login');
+    try {
+        const comment = await commentsCol.findOne({ _id: new ObjectId(req.params.commentId) });
+        if (comment) {
+            const newPinned = !comment.isPinned;
+            await commentsCol.updateMany({ video_id: comment.video_id }, { $set: { isPinned: false } });
+            await commentsCol.updateOne({ _id: comment._id }, { $set: { isPinned: newPinned } });
+        }
+    } catch(e) {}
+    res.redirect('back');
+});
+
 app.get('/delete-video/:id', async (req, res) => {
     if (!req.session.user || !isConnected) return res.redirect('/login');
     try {
@@ -1084,10 +1176,10 @@ app.get('/profile/:username', async (req, res) => {
                 let safeCaption = (v.caption || '').replace(/'/g, "\\'");
                 let canDelete = isMe || (isMod && tab === 'videos');
                 videoHTML += `
-                <div class="v-thumb" onclick="openVideoModal('${v.filename}', '${safeCaption}', '${v.likes || 0}', '${v.views || 0}')" style="cursor:pointer;">
-                    <video src="${v.filename}#t=0.1" muted preload="metadata"></video>
+                <div class="v-thumb" style="position:relative;">
+                    <video src="${v.filename}#t=0.1" muted preload="metadata" style="width:100%; height:100%; object-fit:cover;"></video>
                     <div class="thumb-stats">👁️ ${v.views || 0}</div>
-                    ${canDelete ? `<a href="/delete-video/${v._id}" onclick="event.stopPropagation(); return confirm('Silmek istediğine emin misin?');" style="position:absolute; top:5px; right:5px; background:rgba(0,0,0,0.7); color:#ff4d4d; padding:4px 8px; border-radius:4px; font-size:11px; z-index:10;">Sil</a>` : ''}
+                    ${canDelete ? `<a href="/delete-video/${v._id}" onclick="return confirm('Silmek istediğine emin misin?');" style="position:absolute; top:5px; right:5px; background:rgba(0,0,0,0.7); color:#ff4d4d; padding:4px 8px; border-radius:4px; font-size:11px; z-index:10;">Sil</a>` : ''}
                 </div>`;
             });
         }
@@ -1097,7 +1189,7 @@ app.get('/profile/:username', async (req, res) => {
     let rawAvatarHTML = targetUser.avatar ? `<img src="${targetUser.avatar}" style="width:100%; height:100%; border-radius:50%; object-fit:cover;">` : targetUser.nickname.charAt(0).toUpperCase();
     
     let avatarContainerHTML = hasStory ? 
-        `<div class="story-ring" onclick="openUserStories('${targetUser.username}')" style="width:93px; height:93px; margin:-45px auto 10px auto; border-radius:50%; display:flex; align-items:center; justify-content:center;">
+        `<div class="story-ring" onclick="window.location='/inbox'" style="width:93px; height:93px; margin:-45px auto 10px auto; border-radius:50%; display:flex; align-items:center; justify-content:center;">
             <div style="width:85px; height:85px; background:#FE2C55; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:36px; font-weight:bold; overflow:hidden;">${rawAvatarHTML}</div>
          </div>` : 
         `<div class="avatar" style="width:85px; height:85px; background:#FE2C55; border:4px solid #000; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:36px; margin:-45px auto 10px auto; font-weight:bold; overflow:hidden;">${rawAvatarHTML}</div>`;
@@ -1132,11 +1224,6 @@ app.get('/profile/:username', async (req, res) => {
             .v-thumb video { width: 100%; height: 100%; object-fit: cover; }
             .thumb-stats { position: absolute; bottom: 5px; left: 5px; font-size: 11px; font-weight: bold; text-shadow: 0 1px 2px #000; }
         </style>
-        <script>
-            function openUserStories(username) {
-                window.location = '/inbox?viewStoryUser=' + username;
-            }
-        </script>
     </head>
     <body>
         <div class="banner"></div>
@@ -1145,6 +1232,7 @@ app.get('/profile/:username', async (req, res) => {
             ${avatarContainerHTML}
             <h2 style="margin:5px 0; display:flex; align-items:center; justify-content:center; gap:4px;">${lockIconHTML}${targetUser.nickname} ${verifiedBadgeHTML}</h2>
             <p style="color:#888; margin:0; font-size:13px;">@${targetUser.username}</p>
+            <div style="margin-top:10px;"><a href="/report-page/${targetUser.username}" style="color:#FE2C55; font-size:12px; font-weight:bold;">Şikayet Et ⚠️</a> | <a href="/block/${targetUser.username}" style="color:#aaa; font-size:12px;">Engelle 🚫</a></div>
             <div class="stats">
                 <div><span>${followingCount}</span>Takip edilen</div>
                 <div><span>${followersCount}</span>Takipçi</div>
@@ -1315,7 +1403,6 @@ app.get('/inbox', async (req, res) => {
     });
 
     const navbarHTML = await getNavbar('inbox', req.session.user, false);
-    const viewStoryUserQuery = req.query.viewStoryUser || '';
 
     res.send(`
     <!DOCTYPE html>
@@ -1574,14 +1661,15 @@ app.get('/', async (req, res) => {
 
     let feedHTML = '';
     for (let v of videos) {
-        const comments = await commentsCol.find({ video_id: v._id }).sort({ _id: -1 }).toArray();
+        const comments = await commentsCol.find({ video_id: v._id }).sort({ isPinned: -1, _id: -1 }).toArray();
         const isLiked = await likesCol.findOne({ user_id: userId, video_id: v._id });
         const isFav = await favoritesCol.findOne({ user_id: userId, video_id: v._id });
 
         let commentList = '';
         comments.forEach(c => {
             let commenterAvatar = c.avatar ? `<img src="${c.avatar}" style="width:100%; height:100%; border-radius:50%; object-fit:cover;">` : (c.nickname ? c.nickname.charAt(0).toUpperCase() : '👤');
-            commentList += `<div class="comment-item"><div class="comment-avatar">${commenterAvatar}</div><div class="comment-content" style="flex-grow:1;"><div class="comment-author">${c.nickname || c.username}</div><div class="comment-text">${c.comment}</div></div></div>`;
+            let pinBtn = (v.username === req.session.user.username || isMod) ? `<a href="/pin-comment/${c._id}" style="font-size:10px; color:${c.isPinned ? '#FE2C55' : '#888'}; margin-left:8px;">${c.isPinned ? '📌 Sabitlendi' : 'Sabitle'}</a>` : '';
+            commentList += `<div class="comment-item" style="${c.isPinned ? 'background:rgba(254,44,85,0.08); padding:6px; border-radius:6px;' : ''}"><div class="comment-avatar">${commenterAvatar}</div><div class="comment-content" style="flex-grow:1;"><div class="comment-author">${c.nickname || c.username} ${pinBtn}</div><div class="comment-text">${c.comment}</div></div></div>`;
         });
 
         let formattedCaption = (v.caption || '').replace(/(#\w+)/g, '<a href="/search?q=$1" style="color:#25F4EE; font-weight:bold;">$1</a>');
@@ -1612,6 +1700,7 @@ app.get('/', async (req, res) => {
                 <a href="/like/${v._id}" class="action-btn" style="color:${isLiked ? '#FE2C55' : '#fff'};">♥<span>${v.likes}</span></a>
                 <a href="#" onclick="openComments('${v._id}'); return false;" class="action-btn">💬<span>${comments.length}</span></a>
                 <a href="/favorite/${v._id}" class="action-btn" style="color:${isFav ? '#FFD700' : '#fff'};">★<span>${v.favorites}</span></a>
+                <a href="/report-page/${v.username}" class="action-btn" style="font-size:12px;" title="Şikayet Et">⚠️</a>
                 
                 <div style="width:40px; height:40px; border-radius:50%; background:linear-gradient(135deg, #25F4EE, #FE2C55); padding:2px; margin-top:5px;">
                     <div style="width:100%; height:100%; background:#111; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:14px;">🎵</div>
@@ -1623,7 +1712,7 @@ app.get('/', async (req, res) => {
             <div id="commentModal-${v._id}" class="comment-modal">
                 <div class="comment-modal-header"><span>${comments.length} yorum</span><span onclick="closeComments('${v._id}')" class="comment-close-btn">✕</span></div>
                 <form action="/comment/${v._id}" method="POST" enctype="multipart/form-data" class="comment-input-form" autocomplete="off">
-                    <input type="text" name="comment" placeholder="Yorum ekle..." required style="flex-grow:1; padding:12px 16px; background:#f1f1f2; border:none; border-radius:24px; outline:none;">
+                    <input type="text" name="comment" placeholder="Yorum ekle (veya /tts [metin])..." required style="flex-grow:1; padding:12px 16px; background:#f1f1f2; border:none; border-radius:24px; outline:none;">
                     <button type="submit" style="background:#FE2C55; color:#fff; border:none; padding:10px 18px; border-radius:24px; font-weight:bold; cursor:pointer;">Gönder</button>
                 </form>
                 <div class="comment-scroll-area">${commentList || '<div style="text-align:center; color:#888; margin-top:40px;">Yorum yok.</div>'}</div>
