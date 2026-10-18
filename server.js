@@ -1018,7 +1018,7 @@ app.get('/profile/:username', async (req, res) => {
     <body>
         <div class="banner"></div>
         <div class="profile-header">
-            ${isMe ? '<div class="settings-btn" onclick="document.getElementById(\\'settingsModal\\').style.display=\\'flex\\'">⚙️</div>' : ''}
+            ${isMe ? `<div class="settings-btn" onclick="document.getElementById('settingsModal').style.display='flex'">⚙️</div>` : ''}
             ${avatarContainerHTML}
             <h2 style="margin:5px 0; display:flex; align-items:center; justify-content:center; gap:4px;">${lockIconHTML}${targetUser.nickname} ${verifiedBadgeHTML}</h2>
             <p style="color:#888; margin:0; font-size:13px;">@${targetUser.username}</p>
