@@ -934,7 +934,6 @@ app.get('/profile/:username', async (req, res) => {
     let totalLikesAgg = await videosCol.aggregate([{ $match: { user_id: targetUser._id } }, {$group: { _id: null, total: { $sum: "$likes" } } }]).toArray();
     let totalLikes = totalLikesAgg.length > 0 ? totalLikesAgg[0].total : 0;
 
-    // Kullanıcının hikayesi var mı kontrol et
     const userStories = await storiesCol.find({ username: targetUser.username }).toArray();
     const hasStory = userStories.length > 0;
 
@@ -974,7 +973,6 @@ app.get('/profile/:username', async (req, res) => {
     let bannerBg = targetUser.banner ? `url('${targetUser.banner}')` : 'linear-gradient(135deg, #2b2b2b, #111)';
     let rawAvatarHTML = targetUser.avatar ? `<img src="${targetUser.avatar}" style="width:100%; height:100%; border-radius:50%; object-fit:cover;">` : targetUser.nickname.charAt(0).toUpperCase();
     
-    // Hikaye varsa etrafına açık mavi halka ekle (104907.jpg / 104897.jpg benzeri)
     let avatarContainerHTML = hasStory ? 
         `<div class="story-ring" onclick="openUserStories('${targetUser.username}')" style="width:93px; height:93px; margin:-45px auto 10px auto; border-radius:50%; display:flex; align-items:center; justify-content:center;">
             <div style="width:85px; height:85px; background:#FE2C55; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:36px; font-weight:bold; overflow:hidden;">${rawAvatarHTML}</div>
@@ -1118,7 +1116,6 @@ app.get('/inbox', async (req, res) => {
     if (!req.session.user || !isConnected) return res.redirect('/login');
     const myUsername = req.session.user.username;
 
-    // Tüm aktif hikayeleri kullanıcı adına göre gruplayalım
     const allStories = await storiesCol.find({}).sort({ createdAt: 1 }).toArray();
     const storyGroupsMap = new Map();
     allStories.forEach(s => {
@@ -1143,7 +1140,6 @@ app.get('/inbox', async (req, res) => {
     const chattedUsers = await usersCol.find({ username: { $in: Array.from(chattedUsernames.keys()) } }).toArray();
     const myGroups = await groupsCol.find({ members: myUsername }).toArray();
 
-    // Gelen kutusu üst hikaye çubuğu (Görsel 104900.jpg uyumlu)
     let storiesBarHTML = `<div class="story-circle-item" onclick="window.location='/upload-story-page'"><div style="width:58px; height:58px; border-radius:50%; background:#222; border:1px solid #444; display:flex; align-items:center; justify-content:center; font-size:26px; color:#fff;">+</div><span>Oluştur</span></div>`;
     
     storyGroupsMap.forEach((storiesArr, uname) => {
@@ -1193,7 +1189,6 @@ app.get('/inbox', async (req, res) => {
             .story-inbox-bar { display: flex; gap: 15px; padding: 15px; overflow-x: auto; background: #121212; border-bottom: 1px solid #222; }
             .story-circle-item { display: flex; flex-direction: column; align-items: center; gap: 5px; cursor: pointer; flex-shrink: 0; font-size: 11px; color: #fff; }
             
-            /* Göz Atma (Viewer) Modal Stili (Görsel 104903.jpg uyumlu) */
             .story-viewer-modal { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: #000; z-index: 999999; flex-direction: column; justify-content: space-between; }
             .story-top-bars-container { position: absolute; top: 10px; left: 10px; width: calc(100% - 20px); display: flex; gap: 4px; z-index: 20; }
             .story-single-bar { flex: 1; height: 3px; background: rgba(255,255,255,0.4); border-radius: 2px; overflow: hidden; }
@@ -1221,7 +1216,6 @@ app.get('/inbox', async (req, res) => {
                 const content = document.getElementById('storyMediaContent');
                 document.getElementById('storyUsername').innerText = '@' + story.username;
 
-                // Üst çubukları oluştur (Kaç tane hikaye varsa o kadar çizgi)
                 let barsHTML = '';
                 for(let i=0; i<activeStories.length; i++) {
                     let fillColor = i < currentIndex ? '100%' : (i === currentIndex ? '0%' : '0%');
@@ -1235,7 +1229,6 @@ app.get('/inbox', async (req, res) => {
                     content.innerHTML = '<img src="' + story.mediaUrl + '" style="width:100%; height:100%; object-fit:contain;">';
                 }
 
-                // Silme yetkisi
                 const deleteBtn = document.getElementById('storyDeleteBtn');
                 if(story.username === '${req.session.user.username}' || '${req.session.user.username}' === 'tiktok') {
                     deleteBtn.style.display = 'block';
@@ -1255,7 +1248,7 @@ app.get('/inbox', async (req, res) => {
                 const fillElem = document.getElementById('barFill-' + currentIndex);
                 
                 progressTimer = setInterval(() => {
-                    currentProgress += 2; // 5 saniyede dolar
+                    currentProgress += 2;
                     if(fillElem) fillElem.style.width = currentProgress + '%';
                     if(currentProgress >= 100) {
                         clearInterval(progressTimer);
@@ -1265,18 +1258,15 @@ app.get('/inbox', async (req, res) => {
                 }, 100);
             }
 
-            // Sağ tarafa tıklandığında sonraki hikayeye geçiş
             function handleStoryClick(e) {
                 const screenWidth = window.innerWidth;
                 const clickX = e.clientX;
                 clearInterval(progressTimer);
 
                 if (clickX > screenWidth / 2) {
-                    // Sağa tıklandı -> Sonraki
                     currentIndex++;
                     renderStoryModal();
                 } else {
-                    // Sola tıklandı -> Önceki
                     if(currentIndex > 0) currentIndex--;
                     renderStoryModal();
                 }
@@ -1287,14 +1277,6 @@ app.get('/inbox', async (req, res) => {
                 document.getElementById('storyViewerModal').style.display = 'none';
                 document.getElementById('storyMediaContent').innerHTML = '';
             }
-
-            window.addEventListener('DOMContentLoaded', () => {
-                const targetViewUser = '${viewStoryUserQuery}';
-                if(targetViewUser) {
-                    // Eğer profilden tıklandıysa o kullanıcının hikayelerini aç
-                    // Tüm grupları JS tarafında tetikleyebiliriz
-                }
-            });
         </script>
     </head>
     <body>
@@ -1446,9 +1428,9 @@ app.get('/', async (req, res) => {
         }
     }
 
-    // Aktif hikayesi olanların listesini al
     const allStories = await storiesCol.find({}).toArray();
     const activeStoryUsernames = new Set(allStories.map(s => s.username));
+    const userId = new ObjectId(req.session.user._id);
 
     const activeAnnouncement = isConnected && announcementsCol ? await announcementsCol.findOne({}) : null;
     let isMod = req.session.user.username.toLowerCase() === 'tiktok';
@@ -1456,6 +1438,9 @@ app.get('/', async (req, res) => {
     let feedHTML = '';
     for (let v of videos) {
         const comments = await commentsCol.find({ video_id: v._id }).sort({ _id: -1 }).toArray();
+        const isLiked = await likesCol.findOne({ user_id: userId, video_id: v._id });
+        const isFav = await favoritesCol.findOne({ user_id: userId, video_id: v._id });
+
         let commentList = '';
         comments.forEach(c => {
             let commenterAvatar = c.avatar ? `<img src="${c.avatar}" style="width:100%; height:100%; border-radius:50%; object-fit:cover;">` : (c.nickname ? c.nickname.charAt(0).toUpperCase() : '👤');
@@ -1466,13 +1451,10 @@ app.get('/', async (req, res) => {
         let authorVerified = (v.username.toLowerCase() === 'tiktok' || v.isVerified) ? '<span class="verified-badge">✔</span>' : '';
         let canDeleteVideo = (v.username.toLowerCase() === req.session.user.username.toLowerCase()) || isMod;
 
-        // Kullanıcının hikayesi varsa açık mavi halka göster (Görsel 104894.jpg uyumlu)
         let hasUserStory = activeStoryUsernames.has(v.username);
         let avatarWrapperHTML = hasUserStory ? 
-            `<div class="story-ring" onclick="window.location='/profile/${v.username}'" style="width:48px; height:48px; border-radius:50%; position:absolute; bottom:-10px; left:50%; transform:translateX(-50%); display:flex; align-items:center; justify-content:center; background:#000;">
-                <div style="width:40px; height:40px; background:#FE2C55; border-radius:50%; display:flex; align-items:center; justify-content:center; color:#fff; font-weight:bold;">+</div>
-             </div>` : 
-            `<div style="position:absolute; bottom:-10px; left:50%; transform:translateX(-50%); width:22px; height:22px; background:#FE2C55; color:#fff; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:14px; font-weight:bold;">+</div>`;
+            `<div class="story-ring" onclick="window.location='/profile/${v.username}'" style="width:50px; height:50px; border-radius:50%; position:absolute; top:-3px; left:-3px; display:flex; align-items:center; justify-content:center;"></div>
+             <div style="position:absolute; bottom:-6px; left:50%; transform:translateX(-50%); width:18px; height:18px; background:#FE2C55; color:#fff; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:bold;">+</div>` : '';
 
         feedHTML += `
         <div class="video-container" id="container-${v._id}">
@@ -1485,13 +1467,20 @@ app.get('/', async (req, res) => {
             </div>
             <div class="sidebar-actions">
                 <div style="position:relative; margin-bottom:10px;">
-                    <a href="/profile/${v.username}" style="width:44px; height:44px; border-radius:50%; background:#25F4EE; display:block; overflow:hidden;"></a>
+                    <a href="/profile/${v.username}" style="width:44px; height:44px; border-radius:50%; background:#25F4EE; display:block; overflow:hidden;">
+                        <div style="width:100%; height:100%; background:#555; display:flex; align-items:center; justify-content:center; color:#fff; font-weight:bold;">${v.username.charAt(0).toUpperCase()}</div>
+                    </a>
                     ${avatarWrapperHTML}
                 </div>
-                <a href="/like/${v._id}" class="action-btn">❤️<span>${v.likes}</span></a>
+                <a href="/like/${v._id}" class="action-btn" style="color:${isLiked ? '#FE2C55' : '#fff'};">♥<span>${v.likes}</span></a>
                 <a href="#" onclick="openComments('${v._id}'); return false;" class="action-btn">💬<span>${comments.length}</span></a>
-                <a href="/favorite/${v._id}" class="action-btn">⭐<span>${v.favorites}</span></a>
-                ${canDeleteVideo ? `<a href="/delete-video/${v._id}" onclick="return confirm('Silmek istiyor musun?');" class="action-btn" style="background:rgba(255,0,0,0.6);">🗑️<span>Sil</span></a>` : ''}
+                <a href="/favorite/${v._id}" class="action-btn" style="color:${isFav ? '#FFD700' : '#fff'};">★<span>${v.favorites}</span></a>
+                
+                <div style="width:40px; height:40px; border-radius:50%; background:linear-gradient(135deg, #25F4EE, #FE2C55); padding:2px; margin-top:5px;">
+                    <div style="width:100%; height:100%; background:#111; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:14px;">🎵</div>
+                </div>
+
+                ${canDeleteVideo ? `<a href="/delete-video/${v._id}" onclick="return confirm('Silmek istiyor musun?');" class="action-btn" style="background:rgba(255,0,0,0.6); margin-top:5px;">🗑️<span>Sil</span></a>` : ''}
             </div>
 
             <div id="commentModal-${v._id}" class="comment-modal">
