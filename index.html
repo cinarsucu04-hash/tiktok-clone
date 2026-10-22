@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Klipo - Sistem Güncellemesi ve Yönlendirme</title>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Plus Jakarta Sans', sans-serif;
+        }
+
+        body {
+            background-color: #0b0f19;
+            color: #f3f4f6;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            position: relative;
+        }
+
+        /* Arka Plan Parlama Efektleri */
+        .glow-orb {
+            position: absolute;
+            width: 400px;
+            height: 400px;
+            border-radius: 50%;
+            filter: blur(100px);
+            z-index: 0;
+            opacity: 0.15;
+        }
+        .orb-1 {
+            background: #6366f1;
+            top: -100px;
+            left: -100px;
+            animation: float 8s ease-in-out infinite alternate;
+        }
+        .orb-2 {
+            background: #ec4899;
+            bottom: -100px;
+            right: -100px;
+            animation: float 8s ease-in-out infinite alternate-reverse;
+        }
+
+        @keyframes float {
+            0% { transform: translateY(0) scale(1); }
+            100% { transform: translateY(30px) scale(1.1); }
+        }
+
+        .container {
+            position: relative;
+            z-index: 1;
+            width: 100%;
+            max-width: 480px;
+            padding: 24px;
+        }
+
+        .card {
+            background: rgba(17, 24, 39, 0.7);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            backdrop-filter: blur(20px);
+            border-radius: 24px;
+            padding: 36px 30px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            text-align: center;
+            animation: slideUp 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px) scale(0.95);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+        }
+
+        .icon-wrapper {
+            width: 72px;
+            height: 72px;
+            background: linear-gradient(135deg, rgba(245, 158, 11, 0.2), rgba(239, 68, 68, 0.2));
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            border-radius: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 24px;
+            color: #f59e0b;
+            font-size: 30px;
+            box-shadow: 0 0 25px rgba(245, 158, 11, 0.15);
+            animation: pulseIcon 2s infinite;
+        }
+
+        @keyframes pulseIcon {
+            0%, 100% { transform: scale(1); box-shadow: 0 0 25px rgba(245, 158, 11, 0.15); }
+            50% { transform: scale(1.05); box-shadow: 0 0 35px rgba(245, 158, 11, 0.3); }
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: rgba(245, 158, 11, 0.1);
+            color: #fbbf24;
+            padding: 6px 14px;
+            border-radius: 30px;
+            font-size: 13px;
+            font-weight: 600;
+            margin-bottom: 16px;
+            border: 1px solid rgba(245, 158, 11, 0.2);
+        }
+
+        h1 {
+            font-size: 24px;
+            font-weight: 700;
+            color: #ffffff;
+            margin-bottom: 12px;
+            letter-spacing: -0.5px;
+        }
+
+        p {
+            font-size: 14px;
+            line-height: 1.6;
+            color: #9ca3af;
+            margin-bottom: 28px;
+        }
+
+        .progress-container {
+            width: 100%;
+            height: 6px;
+            background: rgba(255, 255, 255, 0.08);
+            border-radius: 3px;
+            overflow: hidden;
+            margin-bottom: 24px;
+        }
+
+        .progress-bar {
+            height: 100%;
+            width: 100%;
+            background: linear-gradient(90deg, #6366f1, #a855f7, #ec4899);
+            border-radius: 3px;
+            transform-origin: left;
+            animation: countdown 5s linear forwards;
+        }
+
+        @keyframes countdown {
+            from { transform: scaleX(1); }
+            to { transform: scaleX(0); }
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, #6366f1, #4f46e5);
+            color: white;
+            font-weight: 600;
+            font-size: 15px;
+            border: none;
+            border-radius: 14px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 10px 25px -5px rgba(99, 102, 241, 0.4);
+            text-decoration: none;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 15px 30px -5px rgba(99, 102, 241, 0.6);
+            background: linear-gradient(135deg, #4f46e5, #4338ca);
+        }
+
+        .btn:active {
+            transform: translateY(0);
+        }
+
+        .countdown-text {
+            font-size: 13px;
+            color: #6b7280;
+            margin-top: 16px;
+        }
+
+        .countdown-text span {
+            color: #f3f4f6;
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="glow-orb orb-1"></div>
+    <div class="glow-orb orb-2"></div>
+
+    <div class="container">
+        <div class="card">
+            <div class="icon-wrapper">
+                <i class="fa-solid fa-triangle-exclamation"></i>
+            </div>
+            
+            <div class="badge">
+                <i class="fa-solid fa-clock-rotate-left"></i> Sistem Güncellemesi
+            </div>
+
+            <h1>Eski Sürüm Tespit Edildi</h1>
+            
+            <p>Bu site eski altyapıda kalmıştır. Daha hızlı, güvenli ve yeni özelliklerle donatılmış güncel sürüme otomatik olarak geçiş yapılıyor.</p>
+
+            <div class="progress-container">
+                <div class="progress-bar"></div>
+            </div>
+
+            <a href="https://klipo-41xa.onrender.com" class="btn" id="redirectBtn">
+                <span>Hemen Geçiş Yap</span>
+                <i class="fa-solid fa-arrow-right"></i>
+            </a>
+
+            <div class="countdown-text">
+                <span id="counter">5</span> saniye içinde otomatik yönlendirileceksiniz...
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const targetUrl = "https://klipo-41xa.onrender.com";
+        let timeLeft = 5;
+        const counterElement = document.getElementById("counter");
+
+        const timer = setInterval(() => {
+            timeLeft--;
+            if (counterElement) {
+                counterElement.textContent = timeLeft;
+            }
+            if (timeLeft <= 0) {
+                clearInterval(timer);
+                window.location.href = targetUrl;
+            }
+        }, 1000);
+
+        // Kullanıcı isterse butona basarak hemen geçiş yapabilir
+        document.getElementById("redirectBtn").addEventListener("click", (e) => {
+            e.preventDefault();
+            window.location.href = targetUrl;
+        });
+    </script>
+</body>
+</html>
